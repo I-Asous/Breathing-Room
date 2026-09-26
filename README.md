@@ -44,6 +44,29 @@ npx deepspace secrets set XAI_API_KEY
 
 Grok Bot, the teammate product, does not expose a separate HTTP API. This app uses the Grok model API at `https://api.x.ai`.
 
+## iMessage desk
+
+`POST /api/agent` is the rental desk. It answers with one-bedroom asking rent, 2024 air, and how the MTA congestion toll applies in that neighborhood. The air record ends in 2024, so the reply does not score the toll. The on-page form calls the same route.
+
+iMessage goes through [Photon](https://photon.codes/). Spectrum sends on a live connection, so a small Node process holds that connection and calls the desk:
+
+```bash
+npm install
+npx vite --config vite.preview.config.ts
+```
+
+In another terminal, with a Photon project that has iMessage enabled:
+
+```bash
+export SPECTRUM_PROJECT_ID="your-project-id"
+export SPECTRUM_PROJECT_SECRET="your-project-secret"
+export ATLAS_ORIGIN="http://127.0.0.1:44731"
+export PUBLIC_ORIGIN="https://where-it-lands.app.space"
+node scripts/imessage-desk.mjs
+```
+
+Text the project's iMessage number a neighborhood name. A follow-up such as "what about the toll?" stays on that neighborhood for as long as this process is running. `PUBLIC_ORIGIN` is the map link the reply includes.
+
 ## Data
 
 The snapshot in `src/data/` was built from:

@@ -7,7 +7,6 @@ import {
   RENT_MONTHS,
   airAt,
   askingAt,
-  factsFor,
   formatCount,
   formatPercent,
   formatRent,
@@ -19,7 +18,7 @@ import {
   type Layer,
   type Neighborhood,
 } from '@/lib/metrics'
-import { briefFromFacts } from '@/lib/brief'
+import { interpretDesk } from '@/lib/desk'
 import './atlas.css'
 
 const PATHS = neighborhoodPaths()
@@ -98,31 +97,45 @@ export default function CityAtlas() {
     setBriefStatus('idle')
   }
 
-  async function askGrok() {
-    if (!focus) return
-    const facts = factsFor(focus)
+  async function askDesk() {
+    const asked = question.trim()
+    if (!asked && !focus) return
     setBriefStatus('loading')
     setBriefError('')
+    const priorId = focus?.id ?? null
     try {
-      const response = await fetch('/api/brief', {
+      const response = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facts, question }),
+        body: JSON.stringify({ text: asked || 'Brief this neighborhood.', priorId }),
       })
-      if (!response.ok) throw new Error('The briefing service did not answer.')
-      const payload = (await response.json()) as { source?: string; text?: string; notice?: string }
-      if (!payload.text) throw new Error('The briefing came back empty.')
+      if (!response.ok) throw new Error('The desk did not answer.')
+      const payload = (await response.json()) as {
+        source?: string
+        text?: string
+        notice?: string
+        neighborhoodId?: string | null
+      }
+      if (!payload.text) throw new Error('The desk came back empty.')
+      if (payload.neighborhoodId && payload.neighborhoodId !== priorId) {
+        const next = new URLSearchParams(params)
+        next.set('n', payload.neighborhoodId)
+        setParams(next, { replace: true })
+      }
       setBrief({
         source: payload.source === 'grok' ? 'Grok' : 'Computed from the open data',
         text: payload.notice ? `${payload.text} ${payload.notice}` : payload.text,
       })
       setBriefStatus('idle')
     } catch {
-      setBrief({
-        source: 'Computed from the open data',
-        text: briefFromFacts(facts, question),
-      })
-      setBriefError('Grok did not answer, so this brief stays with the numbers already on the map.')
+      const local = interpretDesk(asked || 'Brief this neighborhood.', priorId, window.location.origin)
+      if (local.neighborhoodId && local.neighborhoodId !== priorId) {
+        const next = new URLSearchParams(params)
+        next.set('n', local.neighborhoodId)
+        setParams(next, { replace: true })
+      }
+      setBrief({ source: 'Computed from the open data', text: local.text })
+      setBriefError('The desk could not be reached, so this reply uses the numbers already on the map.')
       setBriefStatus('error')
     }
   }
@@ -332,34 +345,33 @@ export default function CityAtlas() {
           className="brief-panel mt-8"
           onSubmit={(event) => {
             event.preventDefault()
-            void askGrok()
+            void askDesk()
           }}
         >
-          <h3 className="display text-2xl mb-1">Ask Grok</h3>
+          <h3 className="display text-2xl mb-1">Ask the desk</h3>
           <p className="text-sm text-muted-foreground mb-3">
-            {focus
-              ? 'A briefing on this neighborhood, grounded in the figures above.'
-              : 'Pick a neighborhood, then ask about its air, rent, or housing.'}
+            Rent, 2024 air, and how the congestion toll applies. Name a neighborhood, or ask about the one
+            selected on the map. The same desk answers on iMessage.
           </p>
           <textarea
             value={question}
-            disabled={!focus || briefStatus === 'loading'}
-            placeholder={focus ? `What should a resident know about ${focus.name}?` : 'Choose a neighborhood first'}
+            disabled={briefStatus === 'loading'}
+            placeholder={focus ? `Should I rent in ${focus.name}?` : 'Try East Harlem, Astoria, or Lower Manhattan'}
             onChange={(event) => setQuestion(event.target.value)}
             maxLength={500}
           />
           <button
             type="submit"
             className="mt-3 bg-primary text-primary-foreground px-4 py-2 text-sm disabled:opacity-50"
-            disabled={!focus || briefStatus === 'loading'}
+            disabled={briefStatus === 'loading' || (!question.trim() && !focus)}
           >
-            {briefStatus === 'loading' ? 'Writing…' : 'Write the brief'}
+            {briefStatus === 'loading' ? 'Writing…' : 'Ask the desk'}
           </button>
           {briefStatus === 'error' && (
             <p className="text-sm mt-3" role="alert">
               {briefError}{' '}
-              <button type="button" className="underline" onClick={() => void askGrok()}>
-                Try Grok again
+              <button type="button" className="underline" onClick={() => void askDesk()}>
+                Try again
               </button>
             </p>
           )}
@@ -373,7 +385,7 @@ export default function CityAtlas() {
           )}
           {!brief && briefStatus === 'idle' && focus && (
             <p className="text-sm text-muted-foreground mt-3">
-              The brief stays empty until you ask. It will not invent a number that is not in the extract.
+              The reply stays empty until you ask. It uses the open-data extract and the MTA toll schedule, and it does not score the toll.
             </p>
           )}
         </form>

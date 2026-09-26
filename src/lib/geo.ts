@@ -73,3 +73,34 @@ export function neighborhoodPaths(): { id: string; d: string }[] {
     return { id: feature.properties.id, d: rings.map(ringPath).join(' ') }
   })
 }
+
+function pointInRing(lon: number, lat: number, ring: Ring): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]
+    const yi = ring[i][1]
+    const xj = ring[j][0]
+    const yj = ring[j][1]
+    const crosses = yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
+function pointInGeometry(lon: number, lat: number, geometry: Geometry): boolean {
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
+  return polygons.some((rings) => {
+    if (!rings.length || !pointInRing(lon, lat, rings[0])) return false
+    return !rings.slice(1).some((hole) => pointInRing(lon, lat, hole))
+  })
+}
+
+/** UHF id containing this longitude and latitude, or null when it falls outside the city. */
+export function neighborhoodIdAt(lon: number, lat: number): string | null {
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null
+  for (const feature of features) {
+    if (feature.properties.id === '0') continue
+    if (pointInGeometry(lon, lat, feature.geometry)) return feature.properties.id
+  }
+  return null
+}
