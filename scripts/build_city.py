@@ -63,7 +63,7 @@ FM_MONTHS = [
 
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "where-it-lands/divhacks"})
+    req = urllib.request.Request(url, headers={"User-Agent": "breathing-room/divhacks"})
     with urllib.request.urlopen(req, timeout=180) as res:
         return res.read()
 

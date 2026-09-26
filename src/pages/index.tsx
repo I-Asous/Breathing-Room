@@ -36,7 +36,7 @@ export default function Landing() {
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
               Columbia DivHacks · Hack the City
             </p>
-            <p className="display text-lg leading-none">Where it lands</p>
+            <p className="display text-lg leading-none">Breathing ROom</p>
           </div>
           <Link to="/home" className="text-sm underline underline-offset-4">
             Field desk
@@ -48,7 +48,7 @@ export default function Landing() {
         <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
           New York, neighborhood by neighborhood
         </p>
-        <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Where the burden lands</h1>
+        <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Breathing Room</h1>
         <p className="mt-5 max-w-xl text-base text-muted-foreground">
           Forty-two neighborhoods. The air through 2024, one-bedroom asking rents through
           August 2026, and where deeply affordable homes were actually built.
