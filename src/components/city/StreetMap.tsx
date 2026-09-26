@@ -183,6 +183,7 @@ type Props = {
   onSelectMonitor: (id: string) => void
   pin: MapPin | null
   traffic: { count: number; hour: number; playing: boolean; relative: number } | null
+  label?: string
 }
 
 export default function StreetMap({
@@ -196,6 +197,7 @@ export default function StreetMap({
   onSelectMonitor,
   pin,
   traffic,
+  label = 'New York streets and neighborhoods',
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -454,5 +456,5 @@ export default function StreetMap({
     }
   }, [ready, traffic?.count, traffic?.hour, traffic?.playing, traffic?.relative, scopeKey])
 
-  return <div ref={containerRef} className="street-map" role="group" aria-label="New York streets and neighborhoods" />
+  return <div ref={containerRef} className="street-map" role="group" aria-label={label} />
 }

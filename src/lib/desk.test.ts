@@ -48,7 +48,13 @@ describe('interpretDesk', () => {
     const both = interpretDesk('east harlem and astoria', null, origin)
     expect(both.kind).toBe('compare')
     expect(both.text).toContain('Astoria')
+    expect(both.text).toContain('Pros of')
     expect(both.neighborhoodId).toBe('303')
+
+    const follow = interpretDesk('compare Astoria', '303', origin)
+    expect(follow.kind).toBe('compare')
+    expect(follow.neighborhoodId).toBe('303')
+    expect(follow.text).toContain('compared with Long Island City - Astoria')
   })
 
   it('keeps the neighborhood on a follow-up', () => {
