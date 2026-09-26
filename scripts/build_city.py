@@ -7,6 +7,11 @@ Sources (all public):
 - NYC Open Data hg8x-zxpr, Affordable Housing Production by Building
 - FirstMover NYC open listing extracts (asking rent, 2025-02 through 2026-08)
 - NYC Health UHF42 boundaries
+- EPA Air Quality System (AQS), annual + daily monitor summaries (real PM2.5/NO2
+  monitors, 2025 certified and 2026 preliminary; reported as their own points,
+  not blended into the neighborhood model above)
+- MTA Congestion Relief Zone Vehicle Entries, via NY State Open Data (one
+  citation-style traffic stat, not a full series)
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import json
 import math
 import statistics
 import urllib.request
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -29,6 +35,10 @@ NYC_COUNTIES = {
     "Queens County",
     "Richmond County",
 }
+# EPA AQS "County Name" has no " County" suffix, unlike the Zillow extract above.
+AQS_NYC_COUNTIES = {"Bronx", "Kings", "New York", "Queens", "Richmond"}
+AQS_ANNUAL_YEAR = 2025  # latest EPA-certified full year at time of writing
+AQS_PARTIAL_YEAR = 2026  # current year: daily files only, not yet certified
 FM_MONTHS = [
     "2025-02",
     "2025-03",
@@ -53,7 +63,7 @@ FM_MONTHS = [
 
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "where-it-lands/divhacks"})
+    req = urllib.request.Request(url, headers={"User-Agent": "breathing-room/divhacks"})
     with urllib.request.urlopen(req, timeout=180) as res:
         return res.read()
 
@@ -149,6 +159,149 @@ def ensure(name: str, url: str) -> None:
         return
     print("download", name)
     path.write_bytes(fetch(url))
+
+
+def fetch_zip_csv(url: str, cache_name: str, inner_name: str) -> list[dict]:
+    """EPA AQS ships one CSV per ZIP, named the same as the archive."""
+    ensure(cache_name, url)
+    with zipfile.ZipFile(ROOT / cache_name) as archive:
+        with archive.open(inner_name) as raw:
+            return list(csv.DictReader(io.TextIOWrapper(raw, encoding="utf-8-sig")))
+
+
+def collect_air_monitors() -> list[dict]:
+    """Real EPA monitor readings for 2025 (certified) and 2026 (preliminary).
+
+    Kept separate from the NYCCAS neighborhood model: NYC has only ~14 PM2.5
+    and 4 NO2 regulatory monitors citywide, far fewer than the ~80-100 sites
+    NYCCAS blends into an estimate for all 42 neighborhoods, so these are
+    reported as their own points rather than painted across the map.
+    """
+    monitors: dict[tuple[str, str, str], dict] = {}
+
+    def site_for(row: dict) -> dict:
+        key = (row["County Name"], row["Local Site Name"], row["Latitude"], row["Longitude"])
+        return monitors.setdefault(
+            key,
+            {
+                "id": f"epa-{row['County Code']}-{row['Site Num']}",
+                "name": row["Local Site Name"],
+                "borough": row["County Name"],
+                "lat": num(row["Latitude"]),
+                "lon": num(row["Longitude"]),
+                "pm25": [],
+                "no2": [],
+            },
+        )
+
+    annual = fetch_zip_csv(
+        f"https://aqs.epa.gov/aqsweb/airdata/annual_conc_by_monitor_{AQS_ANNUAL_YEAR}.zip",
+        f"aqs_annual_{AQS_ANNUAL_YEAR}.zip",
+        f"annual_conc_by_monitor_{AQS_ANNUAL_YEAR}.csv",
+    )
+    # AQS repeats the same reading once per NAAQS standard it's checked against
+    # (e.g. "PM25 24-hour 2012", "PM25 Annual 2024", ...) and once per physical
+    # sampler (POC) at a site. Standards are redundant; POCs are independent
+    # measurements. So: dedupe standards, take the sample duration AQS reports
+    # most often for that parameter, and median across whatever POCs remain.
+    duration_priority = {
+        "PM2.5 - Local Conditions": ["24 HOUR", "24-HR BLK AVG", "1 HOUR"],
+        "Nitrogen dioxide (NO2)": ["1 HOUR"],
+    }
+    by_site_duration: dict[tuple, dict[str, dict[str, tuple[float, dict]]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    for row in annual:
+        if row["State Name"] != "New York" or row["County Name"] not in AQS_NYC_COUNTIES:
+            continue
+        parameter = row["Parameter Name"]
+        if parameter not in duration_priority:
+            continue
+        value = num(row.get("Arithmetic Mean"))
+        if value is None:
+            continue
+        key = (row["County Name"], row["Local Site Name"], row["Latitude"], row["Longitude"])
+        by_site_duration[key + (parameter,)][row["Sample Duration"]][row["POC"]] = (value, row)
+
+    for (county, site_name, lat, lon, parameter), by_duration in by_site_duration.items():
+        pollutant = "pm25" if parameter == "PM2.5 - Local Conditions" else "no2"
+        duration = next(
+            (d for d in duration_priority[parameter] if d in by_duration),
+            next(iter(by_duration)),
+        )
+        pocs = by_duration[duration]
+        values = [value for value, _ in pocs.values()]
+        _, sample_row = next(iter(pocs.values()))
+        site_for(sample_row)[pollutant].append(
+            {"year": AQS_ANNUAL_YEAR, "value": round(median(values), 2), "certified": True}
+        )
+
+    daily_sources = [
+        ("88101", "pm25"),
+        ("42602", "no2"),
+    ]
+    for parameter_code, pollutant in daily_sources:
+        name = f"daily_{parameter_code}_{AQS_PARTIAL_YEAR}"
+        rows = fetch_zip_csv(
+            f"https://aqs.epa.gov/aqsweb/airdata/{name}.zip", f"{name}.zip", f"{name}.csv"
+        )
+        by_site: dict[tuple[str, str, str], list[float]] = defaultdict(list)
+        rows_by_site: dict[tuple[str, str, str], dict] = {}
+        for row in rows:
+            if row["State Name"] != "New York" or row["County Name"] not in AQS_NYC_COUNTIES:
+                continue
+            value = num(row.get("Arithmetic Mean"))
+            if value is None:
+                continue
+            key = (row["County Name"], row["Local Site Name"], row["Latitude"], row["Longitude"])
+            by_site[key].append(value)
+            rows_by_site[key] = row
+        for key, values in by_site.items():
+            site_for(rows_by_site[key])[pollutant].append(
+                {"year": AQS_PARTIAL_YEAR, "value": round(median(values), 2), "certified": False}
+            )
+
+    return sorted(
+        (site for site in monitors.values() if site["pm25"] or site["no2"]),
+        key=lambda site: site["name"],
+    )
+
+
+def collect_traffic_note() -> dict:
+    """One citation-style traffic stat, not a full series.
+
+    `latestMonthEntries` is summed by us straight from MTA's own crossing
+    counts (data.ny.gov, dataset t6yz-b64h) for the most recent complete
+    month. The year-over-year comparison in `headline` is MTA's own reported
+    figure, not something this dataset alone can recompute (it only starts
+    in January 2025, with no "before tolling" baseline to compare against).
+    """
+    ensure(
+        "mta_crz_monthly.json",
+        "https://data.ny.gov/resource/t6yz-b64h.json?$select=date_trunc_ym(toll_date)"
+        "%20as%20month,sum(crz_entries)%20as%20entries&$group=month&$order=month&$limit=100",
+    )
+    rows = json.loads((ROOT / "mta_crz_monthly.json").read_text())
+    months = [(row["month"][:7], num(row["entries"])) for row in rows]
+    months = [(month, entries) for month, entries in months if entries is not None]
+    if len(months) < 2:
+        return {}
+    # The most recent row is usually a partial, still-in-progress month.
+    latest_month, latest_entries = months[-2]
+    return {
+        "headline": (
+            "MTA reports about 11% fewer vehicles entering the Congestion Relief "
+            "Zone on average, over 27 million fewer entries in the tolling "
+            "program's first year, versus the year before it began."
+        ),
+        "source": "MTA, first-anniversary report (January 2026)",
+        "href": "https://www.mta.info/press-release/icymi-less-traffic-better-transit-its-first-anniversary-governor-hochul-celebrates",
+        "measured": {
+            "latestMonth": latest_month,
+            "latestMonthEntries": round(latest_entries),
+            "note": "Entries into the CRZ that month, summed directly from data.ny.gov.",
+        },
+    }
 
 
 def main() -> None:
@@ -403,6 +556,10 @@ def main() -> None:
             bucket["since2014counted"] += counted
     print("buildings placed", placed, "of", len(housing))
 
+    air_monitors = collect_air_monitors()
+    print("air monitors", len(air_monitors))
+    traffic_note = collect_traffic_note()
+
     neighborhoods = []
     for area in areas:
         uid = area["id"]
@@ -446,11 +603,23 @@ def main() -> None:
             "asking1br": city_asking,
         },
         "neighborhoods": neighborhoods,
+        "airMonitors": air_monitors,
+        "trafficNote": traffic_note,
         "sources": [
             {
                 "name": "Air Quality and Health Impacts",
                 "publisher": "NYC Department of Health, NYCCAS",
                 "href": "https://data.cityofnewyork.us/Environment/Air-Quality-and-Health-Impacts/c3uy-2p5r",
+            },
+            {
+                "name": "Air Quality System (AQS), annual and daily monitor summaries",
+                "publisher": "US EPA",
+                "href": "https://aqs.epa.gov/aqsweb/airdata/download_files.html",
+            },
+            {
+                "name": "Congestion Relief Zone Vehicle Entries",
+                "publisher": "MTA, via New York State Open Data",
+                "href": "https://data.ny.gov/Transportation/MTA-Congestion-Relief-Zone-Vehicle-Entries-Beginni/t6yz-b64h",
             },
             {
                 "name": "Zillow Observed Rent Index (ZIP)",

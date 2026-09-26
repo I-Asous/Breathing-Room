@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { fitTransform, neighborhoodPaths, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
+import { fitTransform, neighborhoodPaths, project, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
 import {
   AIR_YEARS,
   BOROUGHS,
   CITY,
   RENT_MONTHS,
   airAt,
+  askingAt,
   boroughSummary,
   factsFor,
   formatCount,
@@ -15,6 +16,7 @@ import {
   formatUg,
   isBorough,
   last,
+  monitorLabel,
   neighborhoodById,
   percentChange,
   readingFor,
@@ -22,7 +24,7 @@ import {
   type Layer,
   type Neighborhood,
 } from '@/lib/metrics'
-import { briefFromFacts } from '@/lib/brief'
+import { interpretDesk } from '@/lib/desk'
 import './atlas.css'
 
 const PATHS = neighborhoodPaths()
@@ -71,6 +73,8 @@ function boroughRows() {
 export default function CityAtlas() {
   const [params, setParams] = useSearchParams()
   const [layer, setLayer] = useState<Layer>('stack')
+  const [showMonitors, setShowMonitors] = useState(true)
+  const [activeMonitorId, setActiveMonitorId] = useState<string | null>(null)
   const [airYear, setAirYear] = useState('2024')
   const [rentMonth, setRentMonth] = useState(RENT_MONTHS[RENT_MONTHS.length - 1] ?? '2026-08')
   const [question, setQuestion] = useState('')
@@ -132,31 +136,45 @@ export default function CityAtlas() {
     setBriefStatus('idle')
   }
 
-  async function askGrok() {
-    if (!focus) return
-    const facts = factsFor(focus)
+  async function askDesk() {
+    const asked = question.trim()
+    if (!asked && !focus) return
     setBriefStatus('loading')
     setBriefError('')
+    const priorId = focus?.id ?? null
     try {
-      const response = await fetch('/api/brief', {
+      const response = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facts, question }),
+        body: JSON.stringify({ text: asked || 'Brief this neighborhood.', priorId }),
       })
-      if (!response.ok) throw new Error('The briefing service did not answer.')
-      const payload = (await response.json()) as { source?: string; text?: string; notice?: string }
-      if (!payload.text) throw new Error('The briefing came back empty.')
+      if (!response.ok) throw new Error('The desk did not answer.')
+      const payload = (await response.json()) as {
+        source?: string
+        text?: string
+        notice?: string
+        neighborhoodId?: string | null
+      }
+      if (!payload.text) throw new Error('The desk came back empty.')
+      if (payload.neighborhoodId && payload.neighborhoodId !== priorId) {
+        const next = new URLSearchParams(params)
+        next.set('n', payload.neighborhoodId)
+        setParams(next, { replace: true })
+      }
       setBrief({
         source: payload.source === 'grok' ? 'Grok' : 'Computed from the open data',
         text: payload.notice ? `${payload.text} ${payload.notice}` : payload.text,
       })
       setBriefStatus('idle')
     } catch {
-      setBrief({
-        source: 'Computed from the open data',
-        text: briefFromFacts(facts, question),
-      })
-      setBriefError('Grok did not answer, so this brief stays with the numbers already on the map.')
+      const local = interpretDesk(asked || 'Brief this neighborhood.', priorId, window.location.origin)
+      if (local.neighborhoodId && local.neighborhoodId !== priorId) {
+        const next = new URLSearchParams(params)
+        next.set('n', local.neighborhoodId)
+        setParams(next, { replace: true })
+      }
+      setBrief({ source: 'Computed from the open data', text: local.text })
+      setBriefError('The desk could not be reached, so this reply uses the numbers already on the map.')
       setBriefStatus('error')
     }
   }
@@ -184,6 +202,7 @@ export default function CityAtlas() {
         : scope.zori.map((p) => p.value)
 
   const activeHint = LAYERS.find((item) => item.id === layer)?.hint
+  const activeMonitor = CITY.airMonitors.find((m) => m.id === activeMonitorId) ?? null
 
   return (
     <div className="atlas">
@@ -216,6 +235,14 @@ export default function CityAtlas() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="monitor-toggle"
+          aria-pressed={showMonitors}
+          onClick={() => setShowMonitors((value) => !value)}
+        >
+          {showMonitors ? 'Hide' : 'Show'} EPA air monitors, 2025–26
+        </button>
         <div className="map-frame">
           <svg
             viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
@@ -243,6 +270,28 @@ export default function CityAtlas() {
                   </path>
                 )
               })}
+              {showMonitors &&
+                CITY.airMonitors.map((monitor) => {
+                  const [x, y] = project(monitor.lon, monitor.lat)
+                  const isActive = monitor.id === activeMonitorId
+                  return (
+                    <circle
+                      key={monitor.id}
+                      cx={x}
+                      cy={y}
+                      r={isActive ? 6 : 4}
+                      className={`monitor-dot${isActive ? ' is-active' : ''}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setActiveMonitorId(isActive ? null : monitor.id)
+                      }}
+                    >
+                      <title>
+                        {monitor.name} — {monitorLabel(monitor)}
+                      </title>
+                    </circle>
+                  )
+                })}
             </g>
           </svg>
           <div className="legend" aria-hidden="true">
@@ -253,6 +302,31 @@ export default function CityAtlas() {
             <span className="text-xs text-muted-foreground">Heavier</span>
           </div>
         </div>
+        {showMonitors && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Dots are real EPA monitors, not modeled for every neighborhood — NYC has only 14 for
+            PM2.5 and 4 for NO2. Click one for its 2025–2026 reading.
+          </p>
+        )}
+        {activeMonitor && (
+          <div className="monitor-card mt-2">
+            <p className="text-sm">
+              <strong>{activeMonitor.name}</strong> · {activeMonitor.borough}
+            </p>
+            {activeMonitor.pm25.map((point) => (
+              <p key={`pm25-${point.year}`} className="text-sm text-muted-foreground">
+                PM2.5 {formatUg(point.value)} µg/m³, {point.year}
+                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
+              </p>
+            ))}
+            {activeMonitor.no2.map((point) => (
+              <p key={`no2-${point.year}`} className="text-sm text-muted-foreground">
+                NO2 {formatUg(point.value)} ppb, {point.year}
+                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
+              </p>
+            ))}
+          </div>
+        )}
         {layer === 'air' && (
           <label className="scrubber block text-sm">
             <span className="text-muted-foreground">PM2.5 year {airYear}</span>
@@ -412,34 +486,33 @@ export default function CityAtlas() {
           className="brief-panel mt-8"
           onSubmit={(event) => {
             event.preventDefault()
-            void askGrok()
+            void askDesk()
           }}
         >
-          <h3 className="display text-2xl mb-1">Ask Grok</h3>
+          <h3 className="display text-2xl mb-1">Ask the desk</h3>
           <p className="text-sm text-muted-foreground mb-3">
-            {focus
-              ? 'A briefing on this neighborhood, grounded in the figures above.'
-              : `Pick a neighborhood${borough ? ` in ${borough}` : ''}, then ask about its air, rent, or housing.`}
+            Rent, 2024 air, and how the congestion toll applies. Name a neighborhood, or ask about the one
+            selected on the map. The same desk answers on iMessage.
           </p>
           <textarea
             value={question}
-            disabled={!focus || briefStatus === 'loading'}
-            placeholder={focus ? `What should a resident know about ${focus.name}?` : 'Choose a neighborhood first'}
+            disabled={briefStatus === 'loading'}
+            placeholder={focus ? `Should I rent in ${focus.name}?` : 'Try East Harlem, Astoria, or Lower Manhattan'}
             onChange={(event) => setQuestion(event.target.value)}
             maxLength={500}
           />
           <button
             type="submit"
             className="mt-3 bg-primary text-primary-foreground px-4 py-2 text-sm disabled:opacity-50"
-            disabled={!focus || briefStatus === 'loading'}
+            disabled={briefStatus === 'loading' || (!question.trim() && !focus)}
           >
-            {briefStatus === 'loading' ? 'Writing…' : 'Write the brief'}
+            {briefStatus === 'loading' ? 'Writing…' : 'Ask the desk'}
           </button>
           {briefStatus === 'error' && (
             <p className="text-sm mt-3" role="alert">
               {briefError}{' '}
-              <button type="button" className="underline" onClick={() => void askGrok()}>
-                Try Grok again
+              <button type="button" className="underline" onClick={() => void askDesk()}>
+                Try again
               </button>
             </p>
           )}
@@ -453,7 +526,7 @@ export default function CityAtlas() {
           )}
           {!brief && briefStatus === 'idle' && focus && (
             <p className="text-sm text-muted-foreground mt-3">
-              The brief stays empty until you ask. It will not invent a number that is not in the extract.
+              The reply stays empty until you ask. It uses the open-data extract and the MTA toll schedule, and it does not score the toll.
             </p>
           )}
         </form>

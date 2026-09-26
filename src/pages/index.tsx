@@ -25,6 +25,8 @@ import { Link } from 'react-router-dom'
 import CityAtlas from '@/components/city/CityAtlas'
 import { CITY } from '@/lib/metrics'
 
+const traffic = 'headline' in CITY.trafficNote ? CITY.trafficNote : null
+
 export default function Landing() {
   return (
     <div data-testid="static-landing" className="min-h-screen bg-background text-foreground">
@@ -34,7 +36,7 @@ export default function Landing() {
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
               Columbia DivHacks · Hack the City
             </p>
-            <p className="display text-lg leading-none">Where it lands</p>
+            <p className="display text-lg leading-none">Breathing Room</p>
           </div>
           <Link to="/home" className="text-sm underline underline-offset-4">
             Field desk
@@ -46,7 +48,7 @@ export default function Landing() {
         <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
           New York, neighborhood by neighborhood
         </p>
-        <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Where the burden lands</h1>
+        <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Breathing Room</h1>
         <p className="mt-5 max-w-xl text-base text-muted-foreground">
           Forty-two neighborhoods. The air through 2024, one-bedroom asking rents through
           August 2026, and where deeply affordable homes were actually built.
@@ -61,8 +63,19 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-5 py-8 text-sm text-muted-foreground">
           <p className="mb-3">
             ZIP rents are placed in a neighborhood by the centroid of listings in that ZIP.
-            Asthma estimates end in 2017–2019. The air model ends the year before congestion pricing.
+            Asthma estimates end in 2017–2019. The neighborhood air model ends in 2024, the year
+            before congestion pricing; it is not scored here. The map's monitor dots add real,
+            far sparser EPA readings from after that date.
           </p>
+          {traffic && (
+            <p className="mb-3">
+              {traffic.headline}{' '}
+              <a className="underline underline-offset-4" href={traffic.href}>
+                {traffic.source}
+              </a>
+              .
+            </p>
+          )}
           <ul className="space-y-1">
             {CITY.sources.map((source) => (
               <li key={source.href}>
