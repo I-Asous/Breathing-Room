@@ -1,91 +1,128 @@
 # Breathing Room
 
-A neighborhood atlas for Hack the City @ Columbia University. It puts three public records on one map of New York’s 42 United Hospital Fund neighborhoods:
+A neighborhood atlas for Hack the City at Columbia DivHacks. It puts New York’s air, asking rent, and deeply affordable housing on one map of the 42 United Hospital Fund neighborhoods, then names the step those numbers support.
 
-- **Air** — annual PM2.5 and NO2 from the NYC Community Air Survey, through 2024
-- **Rent** — one-bedroom asking rents from the FirstMover listing extracts (Feb 2025–Aug 2026), plus the Zillow Observed Rent Index where a ZIP joins the neighborhood
-- **Housing equity** — extremely-low and very-low income units in HPD affordable projects started since 2014
+The map is the record. A resident or a council staffer can:
 
-The annual neighborhood air model stops the year before congestion pricing, and this map does not score the toll from it. A small number of real EPA monitors (14 for PM2.5, 4 for NO2, citywide) add real 2025-2026 readings as their own dots, separate from the modeled map, plus one cited MTA traffic stat for the tolling program itself.
+- Read annual PM2.5 and NO2 beside new one-bedroom asking rents, on a street map or split across two panes.
+- See where asking rents rose faster than the city while 2024 air is still above the city mean.
+- Enter a monthly rent and get the neighborhoods that ask is enough for, ranked from cleanest air to worst.
+- Compare two neighborhoods and, when the other place is ahead on rent, asthma, or financed deep housing, get one next step.
+- Ask the desk, from the round button on the map or by iMessage, for the numbers and the action they support.
+- Open a public forum for each neighborhood.
 
-The field desk at `/home` is a shared margin: signed-in teammates pin notes to a neighborhood and see who else is in the room. That layer needs a DeepSpace account. The atlas itself does not.
+The neighborhood air model ends in 2024, the year before congestion pricing. Breathing Room does not score the toll from that record. Asking rent is for a new one-bedroom lease, not what a sitting tenant pays. Child asthma figures are 2017–2019. Financed deeply affordable units are homes started since 2014, not vacant listings.
 
-## Run it
+## Tech stack
 
-Node 22.15+ (or 24 or 26) and npm 11.6+.
+**App**
+
+- TypeScript and React 19
+- Vite 8
+- React Router 7, with file routes from Generouted
+- Tailwind CSS 4
+- MapLibre GL 6, on OpenFreeMap’s Liberty style (OpenStreetMap streets, routes, and house numbers)
+
+**Platform**
+
+- [DeepSpace](https://www.npmjs.com/package/deepspace) SDK 0.33.1
+- Cloudflare Workers, served with Wrangler
+- Hono for Worker routes
+- Durable Objects for records, Yjs rooms, presence, canvas, cron, and jobs
+- Node 22, 24, or 26, and npm 11.6+
+
+**Desk and messaging**
+
+- xAI Grok (`grok-4.6`) rewrites a desk reply when `XAI_API_KEY` is set. Without the key, the reply is computed from the neighborhood record.
+- Photon Spectrum (`spectrum-ts`) runs as a separate Node process for iMessage. The Worker does not send texts.
+- Zod for record schemas
+
+**Checks**
+
+- Vitest for unit tests
+- Playwright for end-to-end tests
+- ESLint and `tsc` for lint and types
+
+## Project layout
+
+```
+.
+├── worker.ts                 Worker entry: API routes, then the app shell
+├── wrangler.toml             Worker name, assets, Durable Object bindings
+├── package.json
+├── vite.config.ts            Dev and production build
+├── vite.preview.config.ts    Local atlas preview on port 44731
+├── public/                   Static files, including the MapLibre worker
+├── scripts/
+│   ├── build_city.py         Rebuild src/data/city.json from public extracts
+│   ├── build_households.ts   Census households per neighborhood
+│   └── imessage-desk.mjs     Photon bridge into POST /api/agent
+├── src/
+│   ├── pages/                Routes: the atlas (/) and forums (/home)
+│   ├── components/
+│   │   ├── city/             Map, layers, compare, equity gap, health premium, desk
+│   │   └── messaging/        One public forum per neighborhood
+│   ├── lib/                  Metrics, comparison, desk replies, map search
+│   ├── data/                 The neighborhood snapshot the map reads
+│   ├── server/               /api/agent and /api/brief
+│   ├── schemas/              DeepSpace records, including forum messages
+│   └── ai/                   Optional in-app agent tools
+└── tests/                    Playwright smoke, API, and collab checks
+```
+
+`src/lib` is where a neighborhood becomes a sentence. `metrics.ts` reads the snapshot. `desk.ts` answers a question. `compare.ts` and `overlay.ts` build the comparison, the rising-rent set, and the rent-budget ranking. `src/data` is generated; edit the build scripts, not the JSON, when the extracts change.
+
+## Run
 
 ```bash
 npm install
-npx vite --config vite.preview.config.ts
+npm run preview:city
 ```
 
 Open http://127.0.0.1:44731.
 
-## Deploy on DeepSpace
-
-DeepSpace accounts are GitHub or Google sign-in. From a machine with a browser:
+Deploy, after `npx deepspace auth login` and `npx deepspace app init` on a machine with a browser:
 
 ```bash
-npx deepspace auth login
-npx deepspace app init
 npx deepspace dev start
+npx deepspace secrets set XAI_API_KEY
 npx deepspace deploy
 ```
 
-The app is registered on first use. After deploy it is served at `https://where-it-lands.app.space` unless that name is already taken — rename `name` in `wrangler.toml` and deploy again if it is.
+`name` in `wrangler.toml` is the subdomain, so a deploy is served at `https://breathing-room.app.space`.
 
-## Ask Grok
-
-Neighborhood briefs call the xAI Responses API (`grok-4.6`) from `POST /api/brief`. Without a key, the same route returns a brief computed only from the numbers on the page.
-
-```bash
-npx deepspace secrets set XAI_API_KEY
-```
-
-Grok Bot, the teammate product, does not expose a separate HTTP API. This app uses the Grok model API at `https://api.x.ai`.
-
-## iMessage desk
-
-`POST /api/agent` is the rental desk. It answers with one-bedroom asking rent, 2024 air, and how the MTA congestion toll applies in that neighborhood. The air record ends in 2024, so the reply does not score the toll. The on-page form calls the same route.
-
-iMessage goes through [Photon](https://photon.codes/). Spectrum sends on a live connection, so a small Node process holds that connection and calls the desk:
-
-```bash
-npm install
-npx vite --config vite.preview.config.ts
-```
-
-In another terminal, with a Photon project that has iMessage enabled:
+iMessage needs a Photon project with iMessage enabled, and the atlas reachable at `ATLAS_ORIGIN`:
 
 ```bash
 export SPECTRUM_PROJECT_ID="your-project-id"
 export SPECTRUM_PROJECT_SECRET="your-project-secret"
 export ATLAS_ORIGIN="http://127.0.0.1:44731"
-export PUBLIC_ORIGIN="https://where-it-lands.app.space"
-node scripts/imessage-desk.mjs
+export PUBLIC_ORIGIN="https://breathing-room.app.space"
+npm run desk:imessage
 ```
 
-Text the project's iMessage number a neighborhood name. A follow-up such as "what about the toll?" stays on that neighborhood for as long as this process is running. `PUBLIC_ORIGIN` is the map link the reply includes.
+`PUBLIC_ORIGIN` is the map link in the text. A follow-up stays on the last neighborhood for as long as that process is running.
 
 ## Data
 
 The snapshot in `src/data/` was built from:
 
-- [Air Quality and Health Impacts](https://data.cityofnewyork.us/Environment/Air-Quality-and-Health-Impacts/c3uy-2p5r) (NYC Open Data)
-- [Zillow Observed Rent Index](https://www.zillow.com/research/data/)
-- [Affordable Housing Production by Building](https://data.cityofnewyork.us/Housing-Development/Affordable-Housing-Production-by-Building/hg8x-zxpr)
-- [FirstMover NYC listing extracts](https://www.firstmovernyc.com/open-data)
+- [Air Quality and Health Impacts](https://data.cityofnewyork.us/Environment/Air-Quality-and-Health-Impacts/c3uy-2p5r) (NYC Open Data) — NYCCAS annual means through 2024
+- [Air Quality System](https://aqs.epa.gov/aqsweb/airdata/download_files.html) (US EPA) — monitor dots for 2025 certified and 2026 preliminary readings, not blended into the neighborhood means
+- [FirstMover NYC listing extracts](https://www.firstmovernyc.com/open-data) — one-bedroom asking rents, February 2025–August 2026
+- [Zillow Observed Rent Index](https://www.zillow.com/research/data/) — a separate rent measure, shown when the question asks for it
+- [Affordable Housing Production by Building](https://data.cityofnewyork.us/Housing-Development/Affordable-Housing-Production-by-Building/hg8x-zxpr) (NYC HPD)
 - [UHF42 boundaries](https://github.com/nychealth/EHDP-data) (NYC Health)
-- [Air Quality System (AQS)](https://aqs.epa.gov/aqsweb/airdata/download_files.html) (US EPA) — real PM2.5/NO2 monitor readings, 2025 certified annual plus 2026 preliminary daily, shown as their own map dots
-- [Congestion Relief Zone Vehicle Entries](https://data.ny.gov/Transportation/MTA-Congestion-Relief-Zone-Vehicle-Entries-Beginni/t6yz-b64h) (MTA, via NY State Open Data) — one cited traffic stat, not a full series
+- [American Community Survey](https://www.census.gov/programs-surveys/acs/data/summary-file.html) households by ZIP (B11001), summed into neighborhoods
+- [Congestion Relief Zone vehicle entries](https://data.ny.gov/Transportation/MTA-Congestion-Relief-Zone-Vehicle-Entries-Beginni/t6yz-b64h) (MTA) — the weekday curve for the day animation, not a count of cars on a block
 
-ZIP codes are placed in a neighborhood by the centroid of listings in that ZIP. A few ZIPs fall in the river or an airport cutout and are assigned to the nearest neighborhood within a short distance. Asthma emergency-department estimates in this extract end in 2017–2019.
+A ZIP’s listings are counted in the neighborhood that holds their centroid. Asthma emergency-department estimates in this extract end in 2017–2019.
 
-Rebuild the snapshot (it re-downloads the public extracts into `/tmp/citydata`):
+Rebuild the snapshot (it downloads the public extracts into `/tmp/citydata`):
 
 ```bash
 python3 scripts/build_city.py
 npx tsx scripts/build_households.ts
 ```
 
-The first also writes `src/data/cleaning.json`: every row it read, dropped, or snapped to a neighborhood. The "How we cleaned this" section on the page reads those counts, so it stays true after a rebuild. The second writes Census household counts per neighborhood for the per-1,000-households rates. If Python reports `CERTIFICATE_VERIFY_FAILED` on macOS, run it with `SSL_CERT_FILE=/etc/ssl/cert.pem`.
+`build_city.py` also writes `src/data/cleaning.json`. The “How we cleaned this” section reads those counts. If Python reports `CERTIFICATE_VERIFY_FAILED` on macOS, run it with `SSL_CERT_FILE=/etc/ssl/cert.pem`.
