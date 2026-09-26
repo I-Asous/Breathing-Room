@@ -1,6 +1,6 @@
 # Breathing Room
 
-A neighborhood atlas for Columbia DivHacks, Hack the City. It puts three public records on one map of New York’s 42 United Hospital Fund neighborhoods:
+A neighborhood atlas for Hack the City @ Columbia University. It puts three public records on one map of New York’s 42 United Hospital Fund neighborhoods:
 
 - **Air** — annual PM2.5 and NO2 from the NYC Community Air Survey, through 2024
 - **Rent** — one-bedroom asking rents from the FirstMover listing extracts (Feb 2025–Aug 2026), plus the Zillow Observed Rent Index where a ZIP joins the neighborhood
