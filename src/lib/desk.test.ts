@@ -32,6 +32,9 @@ describe('congestion zone', () => {
 
     const inside = interpretDesk('Lower Manhattan', null, origin)
     expect(inside.text).toContain('inside the Congestion Relief Zone')
+    expect(inside.text.indexOf('housingconnect.nyc.gov')).toBeLessThan(
+      inside.text.indexOf('asthma_and_the_environment'),
+    )
   })
 })
 
@@ -52,5 +55,23 @@ describe('interpretDesk', () => {
     const follow = interpretDesk('what about the toll?', '303', origin)
     expect(follow.neighborhoodId).toBe('303')
     expect(follow.text).toContain('East Harlem')
+  })
+
+  it('names the action that follows the record, and the council district only for that address', () => {
+    const harlem = interpretDesk('should I rent in East Harlem?', null, origin)
+    expect(harlem.kind).toBe('brief')
+    expect(harlem.steps.map((step) => step.kind)).toEqual(['air', 'tenant', 'council'])
+    expect(harlem.text).toContain('asthma_and_the_environment')
+    expect(harlem.text).toContain('tenantprotection')
+    expect(harlem.text).toContain('council.nyc.gov/districts/')
+    expect(harlem.spoken).not.toContain('https://')
+
+    const pinned = interpretDesk('East Harlem', null, origin, { district: 8, neighborhoodId: '303' })
+    expect(pinned.text).toContain('https://council.nyc.gov/district-8/')
+    expect(pinned.text).not.toContain('council.nyc.gov/districts/')
+
+    const elsewhere = interpretDesk('Astoria', null, origin, { district: 8, neighborhoodId: '303' })
+    expect(elsewhere.text).toContain('council.nyc.gov/districts/')
+    expect(elsewhere.text).not.toContain('district-8')
   })
 })

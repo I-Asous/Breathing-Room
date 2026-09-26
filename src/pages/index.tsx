@@ -23,6 +23,7 @@
 
 import { Link } from 'react-router-dom'
 import CityAtlas from '@/components/city/CityAtlas'
+import CleaningNotes from '@/components/city/CleaningNotes'
 import { CITY } from '@/lib/metrics'
 
 const traffic = 'headline' in CITY.trafficNote ? CITY.trafficNote : null
@@ -39,7 +40,7 @@ export default function Landing() {
             <p className="display text-lg leading-none">Breathing Room</p>
           </div>
           <Link to="/home" className="text-sm underline underline-offset-4">
-            Field desk
+            Forums
           </Link>
         </div>
       </header>
@@ -50,13 +51,15 @@ export default function Landing() {
         </p>
         <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Breathing Room</h1>
         <p className="mt-5 max-w-xl text-base text-muted-foreground">
-          Forty-two neighborhoods. The air through 2024, one-bedroom asking rents through
+          Forty-two neighborhoods. The air through 2024, asking rents for new one-bedroom leases through
           August 2026, and where deeply affordable homes were actually built.
         </p>
 
         <div className="mt-10">
           <CityAtlas />
         </div>
+
+        <CleaningNotes />
       </main>
 
       <footer className="border-t border-border">
@@ -85,6 +88,12 @@ export default function Landing() {
                 <span> — {source.publisher}</span>
               </li>
             ))}
+            <li>
+              <a className="underline underline-offset-4" href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">
+                American Community Survey 5-year, households by ZIP (B11001)
+              </a>
+              <span> — US Census Bureau, 2020–2024, summed into neighborhoods by NYC Health ZIP definition</span>
+            </li>
           </ul>
         </div>
       </footer>

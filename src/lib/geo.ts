@@ -56,6 +56,15 @@ export function project(lon: number, lat: number): [number, number] {
   return [x, y]
 }
 
+function projectRing(ring: Ring): [number, number][] {
+  return ring.map((pair) => project(pair[0], pair[1]))
+}
+
+function outerRings(geometry: Geometry): Ring[] {
+  if (geometry.type === 'Polygon') return geometry.coordinates[0] ? [geometry.coordinates[0]] : []
+  return geometry.coordinates.flatMap((polygon) => (polygon[0] ? [polygon[0]] : []))
+}
+
 function ringPath(ring: Ring): string {
   return ring
     .map((pair, index) => {
@@ -68,7 +77,13 @@ function ringPath(ring: Ring): string {
 
 export type Box = { x0: number; y0: number; x1: number; y1: number }
 
-export type NeighborhoodPath = { id: string; d: string; box: Box }
+export type NeighborhoodPath = {
+  id: string
+  d: string
+  box: Box
+  /** Outer rings in map coordinates. Holes are left out; UHF land has essentially none. */
+  land: [number, number][][]
+}
 
 function ringBox(rings: Ring[]): Box {
   const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
@@ -88,8 +103,57 @@ export function neighborhoodPaths(): NeighborhoodPath[] {
   return features.map((feature) => {
     const geom = feature.geometry
     const rings = geom.type === 'Polygon' ? geom.coordinates : geom.coordinates.flat()
-    return { id: feature.properties.id, d: rings.map(ringPath).join(' '), box: ringBox(rings) }
+    return {
+      id: feature.properties.id,
+      d: rings.map(ringPath).join(' '),
+      box: ringBox(rings),
+      land: outerRings(geom).map(projectRing),
+    }
   })
+}
+
+function pointInProjectedRing(x: number, y: number, ring: [number, number][]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]
+    const yi = ring[i][1]
+    const xj = ring[j][0]
+    const yj = ring[j][1]
+    const crosses = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
+function hash(value: number): number {
+  let x = Math.imul(value + 1, 2654435761)
+  x = Math.imul(x ^ (x >>> 16), 2246822507)
+  x = Math.imul(x ^ (x >>> 13), 3266489909)
+  return (x ^ (x >>> 16)) >>> 0
+}
+
+/** Marks that sit on neighborhood land, not in the river inside the bounding box. */
+export function pointsOnLand(
+  paths: NeighborhoodPath[],
+  count: number,
+  salt: number,
+): { x: number; y: number }[] {
+  if (!paths.length || count <= 0) return []
+  const x0 = Math.min(...paths.map((path) => path.box.x0))
+  const y0 = Math.min(...paths.map((path) => path.box.y0))
+  const x1 = Math.max(...paths.map((path) => path.box.x1))
+  const y1 = Math.max(...paths.map((path) => path.box.y1))
+  const spanX = x1 - x0 || 1
+  const spanY = y1 - y0 || 1
+  const points: { x: number; y: number }[] = []
+  const limit = count * 80
+  for (let n = 0; points.length < count && n < limit; n++) {
+    const x = x0 + ((hash(salt * 1000 + n) % 10000) / 10000) * spanX
+    const y = y0 + ((hash(salt * 1000 + n + 17) % 10000) / 10000) * spanY
+    const onLand = paths.some((path) => path.land.some((ring) => pointInProjectedRing(x, y, ring)))
+    if (onLand) points.push({ x, y })
+  }
+  return points
 }
 
 /**

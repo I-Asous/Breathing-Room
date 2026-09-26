@@ -12,7 +12,10 @@ import { usersSchema } from './schemas/users-schema'
 import { settingsSchema } from './schemas/admin-schema'
 import { fieldNotesSchema } from './schemas/field-notes-schema'
 
+import { messagingSchemas } from './schemas/messaging-schema'
+
 export const schemas: CollectionSchema[] = [
+  ...messagingSchemas,
   usersSchema,
   settingsSchema,
   fieldNotesSchema,

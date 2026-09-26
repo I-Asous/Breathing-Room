@@ -72,10 +72,10 @@ function AuthBoot({ children }: { children: ReactNode }) {
   if (!isLoaded) {
     return (
       <div className="mx-auto max-w-xl px-6 py-16">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">Field desk</p>
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">Forums</p>
         <h1 className="mt-2 text-4xl">Sign-in is not connected</h1>
         <p className="mt-4 text-muted-foreground">
-          Shared notes need a DeepSpace session. The atlas on the front page does not. Run
+          Shared forums need a DeepSpace session. The atlas on the front page does not. Run
           auth login, then deepspace dev start, and this desk will open.
         </p>
         <p className="mt-6">

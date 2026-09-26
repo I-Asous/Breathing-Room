@@ -85,4 +85,7 @@ Rebuild the snapshot (it re-downloads the public extracts into `/tmp/citydata`):
 
 ```bash
 python3 scripts/build_city.py
+npx tsx scripts/build_households.ts
 ```
+
+The first also writes `src/data/cleaning.json`: every row it read, dropped, or snapped to a neighborhood. The "How we cleaned this" section on the page reads those counts, so it stays true after a rebuild. The second writes Census household counts per neighborhood for the per-1,000-households rates. If Python reports `CERTIFICATE_VERIFY_FAILED` on macOS, run it with `SSL_CERT_FILE=/etc/ssl/cert.pem`.

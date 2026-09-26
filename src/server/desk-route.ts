@@ -1,5 +1,7 @@
+import { councilDistrictAt } from '../lib/council.js'
+import { neighborhoodIdAt } from '../lib/geo.js'
 import { askGrok } from './brief-route.js'
-import { interpretDesk, modelBrief, type DeskTurn } from '../lib/desk.js'
+import { interpretDesk, modelBrief, type CouncilPin, type DeskTurn } from '../lib/desk.js'
 
 function originOf(value: unknown, fallback: string): string {
   if (typeof value !== 'string') return fallback
@@ -17,21 +19,35 @@ export async function writeDesk(
   body: unknown,
   requestOrigin: string,
 ): Promise<{ status: number; payload: Record<string, unknown> }> {
-  const parsed = body && typeof body === 'object' ? (body as { text?: unknown; priorId?: unknown; origin?: unknown }) : null
+  const parsed =
+    body && typeof body === 'object'
+      ? (body as { text?: unknown; priorId?: unknown; origin?: unknown; lon?: unknown; lat?: unknown })
+      : null
   if (!parsed || typeof parsed.text !== 'string') {
     return { status: 400, payload: { error: 'Send the message text.' } }
   }
   const text = parsed.text.slice(0, 500)
   const priorId = typeof parsed.priorId === 'string' ? parsed.priorId.slice(0, 8) : null
   const origin = originOf(parsed.origin, requestOrigin)
-  const turn = interpretDesk(text, priorId, origin)
+  const council = await councilPin(parsed.lon, parsed.lat)
+  const turn = interpretDesk(text, priorId, origin, council)
   const payload = await withGrok(key, turn)
   return { status: 200, payload }
+}
+
+async function councilPin(lon: unknown, lat: unknown): Promise<CouncilPin | null> {
+  if (typeof lon !== 'number' || typeof lat !== 'number') return null
+  const district = await councilDistrictAt(lon, lat)
+  const neighborhoodId = neighborhoodIdAt(lon, lat)
+  if (district == null || !neighborhoodId) return null
+  return { district, neighborhoodId }
 }
 
 async function withGrok(key: string | undefined, turn: DeskTurn): Promise<Record<string, unknown>> {
   const base = {
     text: turn.text,
+    spoken: turn.spoken,
+    steps: turn.steps,
     neighborhoodId: turn.neighborhoodId,
     source: 'computed' as const,
   }
@@ -48,7 +64,9 @@ async function withGrok(key: string | undefined, turn: DeskTurn): Promise<Record
         notice: 'Grok was unavailable, so this reply is computed from the open data.',
       }
     }
-    return { text: written, neighborhoodId: turn.neighborhoodId, source: 'grok' }
+    const spoken = written.replace(/\s+/g, ' ').trim()
+    const text = turn.suffix ? `${spoken} ${turn.suffix}`.replace(/\s+/g, ' ').trim() : spoken
+    return { text, spoken, steps: turn.steps, neighborhoodId: turn.neighborhoodId, source: 'grok' }
   } catch {
     return {
       ...base,

@@ -1,180 +1,105 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useAuthProfileReady, useMutations, usePresenceRoom, useQuery } from 'deepspace'
-import { SCOPE_ID } from '../../constants'
-import { CITY, neighborhoodById } from '@/lib/metrics'
-import '@/components/city/atlas.css'
-
-type FieldNote = {
-  uhfId: string
-  placeName: string
-  borough: string
-  body: string
-  authorName: string
-}
+import { AuthOverlay, useAuthProfileReady } from 'deepspace'
+import ChatPage from '@/components/messaging/ChatPage'
+import { BOROUGHS, CITY, neighborhoodById, type Borough } from '@/lib/metrics'
 
 export default function HomePage() {
-  const [params] = useSearchParams()
-  const preset = neighborhoodById(params.get('n'))
-  const { isSignedIn, user } = useAuthProfileReady({ requireUser: true })
-  const { records, status, error } = useQuery<FieldNote>('field-notes', { orderBy: 'createdAt', orderDir: 'desc' })
-  const { createConfirmed, removeConfirmed, ready } = useMutations<FieldNote>('field-notes')
-  const { peers, connected, updateState } = usePresenceRoom(SCOPE_ID)
-  const [uhfId, setUhfId] = useState(preset?.id ?? CITY.neighborhoods[0].id)
-  const [body, setBody] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState('')
-  const sent = useRef('')
+  const [params, setParams] = useSearchParams()
+  const place = neighborhoodById(params.get('n'))
+  const { isSignedIn } = useAuthProfileReady({ requireUser: true })
+  const [showAuth, setShowAuth] = useState(false)
 
-  const place = neighborhoodById(uhfId)
-
-  useEffect(() => {
-    if (preset) setUhfId(preset.id)
-  }, [preset])
-
-  useEffect(() => {
-    const label = place?.name ?? 'the desk'
-    if (sent.current === label) return
-    sent.current = label
-    updateState({ desk: label })
-  }, [place?.name, updateState])
-
-  const notes = useMemo(() => records, [records])
-
-  async function publish() {
-    if (!place || !body.trim() || !isSignedIn) return
-    setSaving(true)
-    setSaveError('')
-    try {
-      await createConfirmed({
-        uhfId: place.id,
-        placeName: place.name,
-        borough: place.borough,
-        body: body.trim(),
-        authorName: user?.name || 'Teammate',
-      })
-      setBody('')
-    } catch {
-      setSaveError('The desk did not keep that note. Try again once the room is connected.')
-    } finally {
-      setSaving(false)
-    }
+  function open(id: string) {
+    const next = new URLSearchParams(params)
+    next.set('n', id)
+    setParams(next, { replace: true })
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-8 md:py-12">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground">Shared margin</p>
-      <h1 className="text-4xl md:text-6xl leading-none mt-2">Notes on the map</h1>
-      <p className="mt-4 max-w-xl text-muted-foreground">
-        The atlas is the record. This desk is where a team writes what they want to do about a
-        neighborhood. Notes sync live for everyone in the room.
-      </p>
-      <p className="mt-3 text-sm">
-        <Link to={place ? `/?n=${place.id}` : '/'} className="underline underline-offset-4">
-          Back to {place?.name ?? 'the atlas'}
-        </Link>
-        <span className="text-muted-foreground">
-          {' '}
-          · {connected ? `${peers.length + 1} on the desk` : 'connecting'}
-          {peers.length > 0 && (
-            <>
-              {' '}
-              ·{' '}
-              {peers
-                .map((peer) => {
-                  const desk = typeof peer.state.desk === 'string' ? peer.state.desk : ''
-                  const name = peer.userName || 'Guest'
-                  return desk ? `${name} on ${desk}` : name
-                })
-                .join(', ')}
-            </>
-          )}
-        </span>
-      </p>
+    <div className="flex h-full min-h-0 flex-col md:flex-row">
+      <aside className="max-h-48 shrink-0 overflow-y-auto border-b border-border md:max-h-none md:w-60 md:border-b-0 md:border-r">
+        <div className="px-4 py-4">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">42 forums</p>
+          <p className="mt-1 text-sm text-muted-foreground">One room for each neighborhood.</p>
+        </div>
+        {BOROUGHS.map((borough) => (
+          <BoroughList key={borough} borough={borough} activeId={place?.id ?? null} onOpen={open} />
+        ))}
+      </aside>
 
-      <div className="mt-10 grid gap-10 md:grid-cols-2">
-        <section>
-          <h2 className="text-2xl mb-4">On the desk</h2>
-          {status === 'loading' && <p className="text-muted-foreground">Opening the desk…</p>}
-          {status === 'error' && (
-            <p role="alert">The notes did not load. {error ?? 'Refresh the page to reconnect.'}</p>
-          )}
-          {status === 'ready' && notes.length === 0 && (
-            <p className="text-muted-foreground">
-              No notes yet. The first one becomes part of the shared desk.
-            </p>
-          )}
-          <ul className="space-y-5">
-            {notes.map((note) => (
-              <li key={note.recordId} className="border-t border-border pt-4">
-                <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <Link to={`/?n=${note.data.uhfId}`} className="underline underline-offset-4">
-                    {note.data.placeName}
-                  </Link>
-                  {' · '}
-                  {note.data.borough}
-                </p>
-                <p className="display text-xl mt-1">{note.data.body}</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {note.data.authorName}
-                  {isSignedIn && user && note.createdBy === user.id && (
-                    <button
-                      type="button"
-                      className="ml-3 underline"
-                      disabled={!ready}
-                      onClick={() => void removeConfirmed(note.recordId)}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="note-box">
-          <h2 className="text-2xl mb-4">Add a note</h2>
-          {!isSignedIn && (
-            <p className="text-sm text-muted-foreground mb-3">
-              Sign in to leave a note. Notes already on the desk stay visible.
-            </p>
-          )}
-          <label className="block text-sm text-muted-foreground">
-            Neighborhood
-            <select className="mt-1" value={uhfId} onChange={(event) => setUhfId(event.target.value)}>
-              {CITY.neighborhoods.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.borough} — {n.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm text-muted-foreground mt-3">
-            What should change here
-            <textarea
-              className="mt-1 min-h-32"
-              value={body}
-              maxLength={600}
-              disabled={!isSignedIn}
-              onChange={(event) => setBody(event.target.value)}
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="shrink-0 border-b border-border px-5 py-4">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+            {place ? place.borough : 'Neighborhood forum'}
+          </p>
+          <h1 className="mt-1 text-3xl leading-none">{place ? place.name : 'Choose a neighborhood'}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Posts and replies stay in this neighborhood. A reply opens on the message it answers.
+          </p>
+          <p className="mt-2 text-sm">
+            <Link to={place ? `/?n=${place.id}` : '/'} className="underline underline-offset-4">
+              Back to {place ? place.name : 'the atlas'}
+            </Link>
+            {!isSignedIn && (
+              <>
+                <span className="text-muted-foreground"> · </span>
+                <button type="button" className="underline underline-offset-4" onClick={() => setShowAuth(true)}>
+                  Sign in to post
+                </button>
+              </>
+            )}
+          </p>
+        </header>
+        <div className="min-h-0 flex-1">
+          {place ? (
+            <ChatPage
+              key={place.id}
+              channelName={place.name}
+              description={`${place.borough} neighborhood forum`}
+              className="h-full"
             />
-          </label>
-          <button
-            type="button"
-            className="mt-3 bg-primary text-primary-foreground px-4 py-2 text-sm disabled:opacity-50"
-            disabled={!ready || !isSignedIn || saving || body.trim().length < 2}
-            onClick={() => void publish()}
-          >
-            {saving ? 'Saving…' : 'Pin to the desk'}
-          </button>
-          {saveError && (
-            <p className="text-sm mt-3" role="alert">
-              {saveError}
+          ) : (
+            <p className="px-5 py-8 text-muted-foreground">
+              Pick a neighborhood. Its forum is separate from the other 41.
             </p>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
+      {showAuth && <AuthOverlay onClose={() => setShowAuth(false)} />}
+    </div>
+  )
+}
+
+function BoroughList({
+  borough,
+  activeId,
+  onOpen,
+}: {
+  borough: Borough
+  activeId: string | null
+  onOpen: (id: string) => void
+}) {
+  const rows = CITY.neighborhoods.filter((n) => n.borough === borough)
+  return (
+    <div className="px-4 pb-4">
+      <h2 className="text-xs uppercase tracking-widest text-muted-foreground">{borough}</h2>
+      <ul className="mt-1">
+        {rows.map((n) => (
+          <li key={n.id}>
+            <button
+              type="button"
+              className={`w-full py-1 text-left text-sm underline-offset-4 hover:underline ${
+                n.id === activeId ? 'font-medium text-foreground' : 'text-muted-foreground'
+              }`}
+              aria-current={n.id === activeId ? 'page' : undefined}
+              onClick={() => onOpen(n.id)}
+            >
+              {n.name}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
