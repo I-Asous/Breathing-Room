@@ -103,3 +103,25 @@ export async function writeBrief(
     }
   }
 }
+
+export async function askGrok(key: string, system: string, user: string): Promise<string | null> {
+  const response = await fetch('https://api.x.ai/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'grok-4.6',
+      store: false,
+      max_output_tokens: 450,
+      input: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  })
+  if (!response.ok) return null
+  const text = grokText(await response.json())
+  return text || null
+}

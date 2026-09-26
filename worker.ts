@@ -33,6 +33,7 @@ import {
   resolveAuth,
 } from './src/server/http-routes.js'
 import { writeBrief } from './src/server/brief-route.js'
+import { writeDesk } from './src/server/desk-route.js'
 import { registerRealtimeRoutes } from './src/server/realtime-routes.js'
 
 // Dynamic deploy reads this manifest to create the app's DO bindings.
@@ -152,6 +153,16 @@ app.post('/api/brief', async (c) => {
     body = null
   }
   const result = await writeBrief(c.env.XAI_API_KEY, body)
+  return c.json(result.payload, result.status === 400 ? 400 : 200)
+})
+app.post('/api/agent', async (c) => {
+  let body: unknown = null
+  try {
+    body = await c.req.json()
+  } catch {
+    body = null
+  }
+  const result = await writeDesk(c.env.XAI_API_KEY, body, new URL(c.req.url).origin)
   return c.json(result.payload, result.status === 400 ? 400 : 200)
 })
 registerPlatformProxyRoutes(app)
