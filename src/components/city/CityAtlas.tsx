@@ -21,7 +21,6 @@ import {
   isBorough,
   last,
   layerRange,
-  monitorLabel,
   neighborhoodById,
   percentChange,
   readingFor,
@@ -309,7 +308,16 @@ export default function CityAtlas() {
     })
   }, [readings, borough, focus, day.relative, zoomed])
   const monitors = useMemo(
-    () => CITY.airMonitors.map((monitor) => ({ id: monitor.id, lon: monitor.lon, lat: monitor.lat, title: monitor.name })),
+    () =>
+      CITY.airMonitors.map((monitor) => ({
+        id: monitor.id,
+        lon: monitor.lon,
+        lat: monitor.lat,
+        title: monitor.name,
+        borough: monitor.borough,
+        pm25: monitor.pm25,
+        no2: monitor.no2,
+      })),
     [],
   )
   const traffic = zoomed ? { count: markCount, hour, playing, relative: day.relative } : null
@@ -337,7 +345,6 @@ export default function CityAtlas() {
         : scope.zori.map((p) => p.value)
 
   const activeHint = LAYERS.find((item) => item.id === layer)?.hint
-  const activeMonitor = CITY.airMonitors.find((m) => m.id === activeMonitorId) ?? null
   const councilPin = councilFor(pin, focus?.id ?? null, councilDistrict)
   const localDesk = focus ? interpretDesk(focus.name, null, '', councilPin) : null
   const speech = brief?.spoken ?? localDesk?.spoken ?? ''
@@ -559,25 +566,6 @@ export default function CityAtlas() {
             Dots are real EPA monitors, not modeled for every neighborhood — NYC has only 14 for
             PM2.5 and 4 for NO2. Click one for its 2025–2026 reading.
           </p>
-        )}
-        {activeMonitor && (
-          <div className="monitor-card mt-2">
-            <p className="text-sm">
-              <strong>{activeMonitor.name}</strong> · {activeMonitor.borough}
-            </p>
-            {activeMonitor.pm25.map((point) => (
-              <p key={`pm25-${point.year}`} className="text-sm text-muted-foreground">
-                PM2.5 {formatUg(point.value)} µg/m³, {point.year}
-                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
-              </p>
-            ))}
-            {activeMonitor.no2.map((point) => (
-              <p key={`no2-${point.year}`} className="text-sm text-muted-foreground">
-                NO2 {formatUg(point.value)} ppb, {point.year}
-                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
-              </p>
-            ))}
-          </div>
         )}
         <table className="borough-table">
           <caption className="text-left text-xs text-muted-foreground mb-1">
