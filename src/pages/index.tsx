@@ -36,7 +36,7 @@ export default function Landing() {
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
               Columbia DivHacks · Hack the City
             </p>
-            <p className="display text-lg leading-none">Breathing ROom</p>
+            <p className="display text-lg leading-none">Breathing Room</p>
           </div>
           <Link to="/home" className="text-sm underline underline-offset-4">
             Field desk
