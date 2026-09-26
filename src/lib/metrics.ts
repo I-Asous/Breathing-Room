@@ -289,6 +289,70 @@ export function factsFor(neighborhood: Neighborhood): BriefFacts {
   }
 }
 
+export const BOROUGHS = ['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island'] as const
+
+export type Borough = (typeof BOROUGHS)[number]
+
+export function isBorough(value: string | null): value is Borough {
+  return value != null && (BOROUGHS as readonly string[]).includes(value)
+}
+
+export function median(values: number[]): number | null {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/** Median across neighborhoods at each period, keeping only periods some neighborhood reports. */
+function medianSeries<P, K extends string | number>(
+  lists: P[][],
+  key: (point: P) => K,
+  value: (point: P) => number,
+): { key: K; value: number; points: P[] }[] {
+  const byKey = new Map<K, P[]>()
+  for (const list of lists) {
+    for (const point of list) {
+      const k = key(point)
+      byKey.set(k, [...(byKey.get(k) ?? []), point])
+    }
+  }
+  return [...byKey.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, points]) => ({ key: k, value: median(points.map(value)) ?? 0, points }))
+}
+
+export type AreaSummary = CityData['citywide'] & { deep: number; count: number }
+
+/** A borough read as the median of its neighborhoods, the same way the borough table reads it. */
+export function boroughSummary(borough: Borough): AreaSummary {
+  const rows = CITY.neighborhoods.filter((n) => n.borough === borough)
+  const air = (pick: (n: Neighborhood) => AirPoint[]) =>
+    medianSeries(rows.map(pick), (p) => p.period, (p) => p.value).map(({ key, value }) => ({
+      period: key,
+      value,
+    }))
+  return {
+    pm25: air((n) => n.pm25),
+    no2: air((n) => n.no2),
+    asthmaChild: air((n) => n.asthmaChild),
+    zori: medianSeries(rows.map((n) => n.zori), (p) => p.year, (p) => p.value).map(({ key, value }) => ({
+      year: key,
+      value,
+    })),
+    asking1br: medianSeries(rows.map((n) => n.asking1br), (p) => p.month, (p) => p.median1br).map(
+      ({ key, value, points }) => ({
+        month: key,
+        median1br: value,
+        medianAll: null,
+        n: points.reduce((sum, p) => sum + p.n, 0),
+      }),
+    ),
+    deep: rows.reduce((sum, n) => sum + n.housing.since2014eli, 0),
+    count: rows.length,
+  }
+}
+
 export function neighborhoodById(id: string | null): Neighborhood | null {
   if (!id) return null
   return CITY.neighborhoods.find((n) => n.id === id) ?? null
