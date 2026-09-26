@@ -36,6 +36,42 @@
   color: var(--color-foreground);
 }
 
+.monitor-toggle {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.6rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.monitor-toggle[aria-pressed='true'] {
+  border-color: var(--color-foreground);
+  color: var(--color-foreground);
+}
+
+.monitor-dot {
+  cursor: pointer;
+  fill: var(--color-card);
+  stroke: var(--color-foreground);
+  stroke-width: 1.4;
+}
+
+.monitor-dot.is-active {
+  fill: var(--color-pressure);
+  stroke: var(--color-foreground);
+}
+
+.monitor-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+}
+
 .map-frame {
   background: var(--color-card);
   border: 1px solid var(--color-border);

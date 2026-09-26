@@ -50,7 +50,7 @@ const yMin = mercatorY(minLat)
 export const MAP_WIDTH = 640
 export const MAP_HEIGHT = 760
 
-function project(lon: number, lat: number): [number, number] {
+export function project(lon: number, lat: number): [number, number] {
   const x = ((lon - minLon) / (maxLon - minLon)) * MAP_WIDTH
   const y = ((yMax - mercatorY(lat)) / (yMax - yMin)) * MAP_HEIGHT
   return [x, y]
