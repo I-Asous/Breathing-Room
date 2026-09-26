@@ -637,7 +637,7 @@ export default function CityAtlas() {
         )}
         <p className="mb-3">
           <Link to={focus ? `/home?n=${focus.id}` : '/home'} className="text-sm underline underline-offset-4">
-            Pin a note on the field desk
+            Open the {focus ? `${focus.name} forum` : 'neighborhood forums'}
           </Link>
         </p>
         <p className="text-sm text-muted-foreground mb-2">

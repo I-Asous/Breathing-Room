@@ -27,7 +27,9 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__import__("os").environ.get("CITY_DATA_DIR", "/tmp/citydata"))
-OUT_DIR = Path(__file__).resolve().parents[1] / "src" / "data"
+OUT_DIR = Path(
+    __import__("os").environ.get("CITY_OUT_DIR", Path(__file__).resolve().parents[1] / "src" / "data")
+)
 NYC_COUNTIES = {
     "Bronx County",
     "Kings County",
@@ -169,7 +171,7 @@ def fetch_zip_csv(url: str, cache_name: str, inner_name: str) -> list[dict]:
             return list(csv.DictReader(io.TextIOWrapper(raw, encoding="utf-8-sig")))
 
 
-def collect_air_monitors() -> list[dict]:
+def collect_air_monitors(cleaning: dict) -> list[dict]:
     """Real EPA monitor readings for 2025 (certified) and 2026 (preliminary).
 
     Kept separate from the NYCCAS neighborhood model: NYC has only ~14 PM2.5
@@ -211,6 +213,7 @@ def collect_air_monitors() -> list[dict]:
     by_site_duration: dict[tuple, dict[str, dict[str, tuple[float, dict]]]] = defaultdict(
         lambda: defaultdict(dict)
     )
+    annual_rows = 0
     for row in annual:
         if row["State Name"] != "New York" or row["County Name"] not in AQS_NYC_COUNTIES:
             continue
@@ -220,6 +223,7 @@ def collect_air_monitors() -> list[dict]:
         value = num(row.get("Arithmetic Mean"))
         if value is None:
             continue
+        annual_rows += 1
         key = (row["County Name"], row["Local Site Name"], row["Latitude"], row["Longitude"])
         by_site_duration[key + (parameter,)][row["Sample Duration"]][row["POC"]] = (value, row)
 
@@ -235,6 +239,12 @@ def collect_air_monitors() -> list[dict]:
         site_for(sample_row)[pollutant].append(
             {"year": AQS_ANNUAL_YEAR, "value": round(median(values), 2), "certified": True}
         )
+
+    cleaning["monitors"] = {
+        "annualRows": annual_rows,
+        "annualReadings": len(by_site_duration),
+        "year": AQS_ANNUAL_YEAR,
+    }
 
     daily_sources = [
         ("88101", "pm25"),
@@ -261,10 +271,12 @@ def collect_air_monitors() -> list[dict]:
                 {"year": AQS_PARTIAL_YEAR, "value": round(median(values), 2), "certified": False}
             )
 
-    return sorted(
+    sites = sorted(
         (site for site in monitors.values() if site["pm25"] or site["no2"]),
         key=lambda site: site["name"],
     )
+    cleaning["monitors"]["sites"] = len(sites)
+    return sites
 
 
 def collect_traffic_note() -> dict:
@@ -346,13 +358,19 @@ def main() -> None:
         )
     print(f"neighborhoods {len(areas)}")
 
+    cleaning: dict = {}
+
     def assign(lon: float, lat: float) -> str | None:
+        return locate(lon, lat)[0]
+
+    def locate(lon: float, lat: float) -> tuple[str | None, str]:
+        """Neighborhood for a point, and whether it fell 'inside' one or was 'snapped' to the nearest."""
         for area in areas:
             minx, miny, maxx, maxy = area["bbox"]
             if lon < minx or lon > maxx or lat < miny or lat > maxy:
                 continue
             if point_in_geom(lon, lat, area["geom"]):
-                return area["id"]
+                return area["id"], "inside"
         # ZIP centroids sometimes fall in a river or airport cutout.
         best = None
         best_d = 0.04**2
@@ -362,7 +380,7 @@ def main() -> None:
             if d < best_d:
                 best_d = d
                 best = area["id"]
-        return best
+        return best, "snapped" if best else "outside"
 
     # ZIP centroids and asking-rent medians from listing extracts.
     zip_lat: dict[str, float] = defaultdict(float)
@@ -372,6 +390,7 @@ def main() -> None:
     # We assign after ZIP->UHF is known, so store by zip first.
     prices: dict[tuple[str, str, str], list[float]] = defaultdict(list)
 
+    listing = {"rows": 0, "noZip": 0, "noPoint": 0, "outsideCity": 0, "priceOutOfRange": 0, "kept": 0, "oneBedroom": 0}
     for month in FM_MONTHS:
         url = (
             "https://raw.githubusercontent.com/benfwalla/firstmover-open-data-project/"
@@ -382,37 +401,52 @@ def main() -> None:
         reader = csv.DictReader(io.StringIO(raw.decode("utf-8", "replace")))
         kept = 0
         for row in reader:
+            listing["rows"] += 1
             zip_code = (row.get("zip_code") or "").strip()
             if len(zip_code) < 5:
+                listing["noZip"] += 1
                 continue
             zip_code = zip_code[:5]
             price = num(row.get("price"))
             lat = num(row.get("latitude"))
             lon = num(row.get("longitude"))
             if lat is None or lon is None:
+                listing["noPoint"] += 1
                 continue
             if not (40.4 <= lat <= 41.0 and -74.3 <= lon <= -73.6):
+                listing["outsideCity"] += 1
                 continue
             zip_lat[zip_code] += lat
             zip_lon[zip_code] += lon
             zip_n[zip_code] += 1
             if price is None or price < 700 or price > 20000:
+                listing["priceOutOfRange"] += 1
                 continue
             beds = num(row.get("bedrooms"))
             prices[(month, zip_code, "all")].append(price)
             if beds == 1:
                 prices[(month, zip_code, "1")].append(price)
+                listing["oneBedroom"] += 1
             kept += 1
+            listing["kept"] += 1
         print("  priced rows", kept)
 
     zip_uhf: dict[str, str] = {}
+    zip_how: dict[str, int] = defaultdict(int)
+    zips_dropped: list[str] = []
     for zip_code, count in zip_n.items():
         lon = zip_lon[zip_code] / count
         lat = zip_lat[zip_code] / count
-        uid = assign(lon, lat)
+        uid, how = locate(lon, lat)
+        zip_how[how] += 1
         if uid:
             zip_uhf[zip_code] = uid
+        else:
+            zip_how["listingsDropped"] += count
+            zips_dropped.append(zip_code)
     print("zips assigned", len(zip_uhf), "of", len(zip_n))
+    cleaning["listings"] = {**listing, "months": len(FM_MONTHS), "first": FM_MONTHS[0], "last": FM_MONTHS[-1]}
+    cleaning["zips"] = {"total": len(zip_n), **zip_how, "dropped": sorted(zips_dropped)}
 
     asking: dict[str, list[dict]] = defaultdict(list)
     city_asking: list[dict] = []
@@ -478,6 +512,7 @@ def main() -> None:
             zori_by_uhf[uid][year].append(med)
             zori_city[year].append(med)
     print("zori zips used", assigned_zori, "latest", zori_latest_label)
+    cleaning["zori"] = {"zips": assigned_zori}
 
     def series_from(bucket: dict[str, list[float]]) -> list[dict]:
         out = []
@@ -530,12 +565,15 @@ def main() -> None:
         for uid in {a["id"] for a in areas}
     }
     placed = 0
+    house_how: dict[str, int] = defaultdict(int)
     for row in housing:
         lat = num(row.get("latitude"))
         lon = num(row.get("longitude"))
         if lat is None or lon is None:
+            house_how["noPoint"] += 1
             continue
-        uid = assign(lon, lat)
+        uid, how = locate(lon, lat)
+        house_how[how] += 1
         if not uid:
             continue
         placed += 1
@@ -555,8 +593,9 @@ def main() -> None:
             bucket["since2014eli"] += eli + vli
             bucket["since2014counted"] += counted
     print("buildings placed", placed, "of", len(housing))
+    cleaning["housing"] = {"rows": len(housing), **house_how}
 
-    air_monitors = collect_air_monitors()
+    air_monitors = collect_air_monitors(cleaning)
     print("air monitors", len(air_monitors))
     traffic_note = collect_traffic_note()
 
@@ -647,6 +686,7 @@ def main() -> None:
     (OUT_DIR / "uhf.json").write_text(
         json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":"))
     )
+    (OUT_DIR / "cleaning.json").write_text(json.dumps(cleaning, indent=2) + "\n")
     print("wrote", OUT_DIR / "city.json", (OUT_DIR / "city.json").stat().st_size)
     print("wrote", OUT_DIR / "uhf.json", (OUT_DIR / "uhf.json").stat().st_size)
 

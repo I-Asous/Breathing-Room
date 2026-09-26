@@ -1,0 +1,47 @@
+{
+  "listings": {
+    "rows": 384443,
+    "noZip": 0,
+    "noPoint": 0,
+    "outsideCity": 0,
+    "priceOutOfRange": 1634,
+    "kept": 382809,
+    "oneBedroom": 140604,
+    "months": 19,
+    "first": "2025-02",
+    "last": "2026-08"
+  },
+  "zips": {
+    "total": 205,
+    "inside": 184,
+    "snapped": 11,
+    "outside": 10,
+    "listingsDropped": 16467,
+    "dropped": [
+      "07002",
+      "07029",
+      "07032",
+      "07083",
+      "07087",
+      "07094",
+      "07304",
+      "07305",
+      "07306",
+      "07307"
+    ]
+  },
+  "zori": {
+    "zips": 149
+  },
+  "housing": {
+    "rows": 9250,
+    "inside": 7374,
+    "noPoint": 1876
+  },
+  "monitors": {
+    "annualRows": 169,
+    "annualReadings": 18,
+    "year": 2025,
+    "sites": 14
+  }
+}

@@ -39,7 +39,7 @@ export default function Landing() {
             <p className="display text-lg leading-none">Breathing Room</p>
           </div>
           <Link to="/home" className="text-sm underline underline-offset-4">
-            Field desk
+            Forums
           </Link>
         </div>
       </header>
