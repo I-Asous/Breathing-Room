@@ -23,6 +23,7 @@
 
 import { Link } from 'react-router-dom'
 import CityAtlas from '@/components/city/CityAtlas'
+import CleaningNotes from '@/components/city/CleaningNotes'
 import { CITY } from '@/lib/metrics'
 
 const traffic = 'headline' in CITY.trafficNote ? CITY.trafficNote : null
@@ -57,6 +58,8 @@ export default function Landing() {
         <div className="mt-10">
           <CityAtlas />
         </div>
+
+        <CleaningNotes />
       </main>
 
       <footer className="border-t border-border">
