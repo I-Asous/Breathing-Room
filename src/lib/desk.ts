@@ -10,6 +10,7 @@ import {
   type BriefFacts,
   type Neighborhood,
 } from './metrics'
+import { comparisonSpeech, compareNeighborhoods } from './compare'
 import { nextSteps, type NextStep } from './next-steps'
 
 /** A council district applies only to the neighborhood that contains the address. */
@@ -267,22 +268,21 @@ function briefParts(neighborhood: Neighborhood, question: string): { spoken: str
   }
 }
 
-function compareSpoken(left: Neighborhood, right: Neighborhood): string {
-  const line = (neighborhood: Neighborhood) => {
-    const facts = factsFor(neighborhood)
-    const rent = facts.asking_1br != null ? money(facts.asking_1br) : 'no joined one-bedroom median'
-    const pm = facts.pm25_2024 != null ? `${formatUg(facts.pm25_2024)} µg/m³ PM2.5 in 2024` : 'no 2024 PM2.5'
-    const relation = congestionRelation(neighborhood)
-    const where = relation === 'inside' ? 'inside' : relation === 'edge' ? 'on the edge of' : 'outside'
-    return `${neighborhood.name}: one-bedroom asking ${rent}, ${pm}, ${where} the congestion zone.`
+function compareTurn(mine: Neighborhood, other: Neighborhood, question: string, origin: string): DeskTurn {
+  const comparison = compareNeighborhoods(mine, other)
+  const insight = comparison.insight
+  const suffix = insight
+    ? `What you can do: ${insight.title}. ${insight.note} ${insight.href} ${mapLine(origin, other.id)}`
+    : mapLine(origin, mine.id)
+  return {
+    kind: 'compare',
+    ...reply(comparisonSpeech(comparison, other.name), suffix, `${mine.name} compared with ${other.name}.`),
+    neighborhoodId: mine.id,
+    facts: factsFor(mine),
+    focus: question,
+    steps: insight ? [insight] : [],
   }
-  return `${line(left)} ${line(right)} Air figures end in 2024 and do not show whether the toll changed the air. E-ZPass is ${money(TOLL.peakEzPass)} at peak to enter the zone.`.replace(
-    /\s+/g,
-    ' ',
-  )
 }
-
-const EMPTY: Pick<DeskBody, 'suffix' | 'steps'> = { suffix: '', steps: [] }
 
 function reply(
   spoken: string,
@@ -293,6 +293,8 @@ function reply(
   const text = `${lead}${lead ? ' ' : ''}${flat} ${suffix}`.replace(/\s+/g, ' ').trim()
   return { text, spoken, suffix }
 }
+
+const EMPTY: Pick<DeskBody, 'suffix' | 'steps'> = { suffix: '', steps: [] }
 
 const HELP =
   'Text a New York neighborhood. I will read the rent, the 2024 air, and the congestion toll, then name the step those numbers support. Try East Harlem, Astoria, or Lower Manhattan. The air record stops in 2024, so I will not score the toll.'
@@ -328,20 +330,13 @@ export function interpretDesk(
     }
   }
   if (named.length === 2) {
-    const [left, right] = named
-    const steps = stepsFor(left, council)
-    const rightLead = stepsFor(right, council)[0]
-    const suffix = `What you can do: ${left.name}: ${steps[0].note} ${steps[0].href} ${right.name}: ${rightLead.note} ${rightLead.href} ${mapLine(origin, left.id)}`
-    return {
-      kind: 'compare',
-      ...reply(compareSpoken(left, right), suffix),
-      neighborhoodId: left.id,
-      facts: factsFor(left),
-      focus: trimmed,
-      steps,
-    }
+    return compareTurn(named[0], named[1], trimmed, origin)
   }
   if (named.length === 1) {
+    const prior = neighborhoodById(priorId)
+    if (prior && prior.id !== named[0].id && /\b(compare|vs|versus|against)\b/i.test(trimmed)) {
+      return compareTurn(prior, named[0], trimmed, origin)
+    }
     return briefTurn(named[0], trimmed, origin, council)
   }
 
