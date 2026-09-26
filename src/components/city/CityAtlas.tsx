@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { neighborhoodPaths, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
+import { neighborhoodPaths, project, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
 import {
   AIR_YEARS,
   CITY,
@@ -13,6 +13,7 @@ import {
   formatRent,
   formatUg,
   last,
+  monitorLabel,
   neighborhoodById,
   percentChange,
   readingFor,
@@ -70,6 +71,8 @@ function boroughRows() {
 export default function CityAtlas() {
   const [params, setParams] = useSearchParams()
   const [layer, setLayer] = useState<Layer>('stack')
+  const [showMonitors, setShowMonitors] = useState(true)
+  const [activeMonitorId, setActiveMonitorId] = useState<string | null>(null)
   const [airYear, setAirYear] = useState('2024')
   const [rentMonth, setRentMonth] = useState(RENT_MONTHS[RENT_MONTHS.length - 1] ?? '2026-08')
   const [question, setQuestion] = useState('')
@@ -150,6 +153,7 @@ export default function CityAtlas() {
         : (focus ? focus.zori : CITY.citywide.zori).map((p) => p.value)
 
   const activeHint = LAYERS.find((item) => item.id === layer)?.hint
+  const activeMonitor = CITY.airMonitors.find((m) => m.id === activeMonitorId) ?? null
 
   return (
     <div className="atlas">
@@ -167,6 +171,14 @@ export default function CityAtlas() {
           ))}
         </div>
         <p className="text-sm text-muted-foreground mb-3">{activeHint}</p>
+        <button
+          type="button"
+          className="monitor-toggle"
+          aria-pressed={showMonitors}
+          onClick={() => setShowMonitors((value) => !value)}
+        >
+          {showMonitors ? 'Hide' : 'Show'} EPA air monitors, 2025–26
+        </button>
         <div className="map-frame">
           <svg viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} role="group" aria-label="New York neighborhoods">
             {PATHS.map((path) => {
@@ -188,6 +200,28 @@ export default function CityAtlas() {
                 </path>
               )
             })}
+            {showMonitors &&
+              CITY.airMonitors.map((monitor) => {
+                const [x, y] = project(monitor.lon, monitor.lat)
+                const isActive = monitor.id === activeMonitorId
+                return (
+                  <circle
+                    key={monitor.id}
+                    cx={x}
+                    cy={y}
+                    r={isActive ? 6 : 4}
+                    className={`monitor-dot${isActive ? ' is-active' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setActiveMonitorId(isActive ? null : monitor.id)
+                    }}
+                  >
+                    <title>
+                      {monitor.name} — {monitorLabel(monitor)}
+                    </title>
+                  </circle>
+                )
+              })}
           </svg>
           <div className="legend" aria-hidden="true">
             <span className="text-xs text-muted-foreground">Lighter</span>
@@ -197,6 +231,31 @@ export default function CityAtlas() {
             <span className="text-xs text-muted-foreground">Heavier</span>
           </div>
         </div>
+        {showMonitors && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Dots are real EPA monitors, not modeled for every neighborhood — NYC has only 14 for
+            PM2.5 and 4 for NO2. Click one for its 2025–2026 reading.
+          </p>
+        )}
+        {activeMonitor && (
+          <div className="monitor-card mt-2">
+            <p className="text-sm">
+              <strong>{activeMonitor.name}</strong> · {activeMonitor.borough}
+            </p>
+            {activeMonitor.pm25.map((point) => (
+              <p key={`pm25-${point.year}`} className="text-sm text-muted-foreground">
+                PM2.5 {formatUg(point.value)} µg/m³, {point.year}
+                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
+              </p>
+            ))}
+            {activeMonitor.no2.map((point) => (
+              <p key={`no2-${point.year}`} className="text-sm text-muted-foreground">
+                NO2 {formatUg(point.value)} ppb, {point.year}
+                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
+              </p>
+            ))}
+          </div>
+        )}
         {layer === 'air' && (
           <label className="scrubber block text-sm">
             <span className="text-muted-foreground">PM2.5 year {airYear}</span>

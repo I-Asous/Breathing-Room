@@ -26,6 +26,23 @@ export type Neighborhood = {
   housing: Housing
 }
 
+export type MonitorPoint = { year: number; value: number; certified: boolean }
+export type AirMonitor = {
+  id: string
+  name: string
+  borough: string
+  lat: number
+  lon: number
+  pm25: MonitorPoint[]
+  no2: MonitorPoint[]
+}
+export type TrafficNote = {
+  headline: string
+  source: string
+  href: string
+  measured: { latestMonth: string; latestMonthEntries: number; note: string }
+} | Record<string, never>
+
 export type CityData = {
   zoriLatest: string
   citywide: {
@@ -36,10 +53,18 @@ export type CityData = {
     asking1br: AskingPoint[]
   }
   neighborhoods: Neighborhood[]
+  airMonitors: AirMonitor[]
+  trafficNote: TrafficNote
   sources: { name: string; publisher: string; href: string }[]
 }
 
 export const CITY = city as CityData
+
+export function monitorLabel(monitor: AirMonitor): string {
+  const pm = last(monitor.pm25)
+  if (!pm) return 'No PM2.5 reading'
+  return `PM2.5 ${formatUg(pm.value)} µg/m³, ${pm.year}${pm.certified ? '' : ' (preliminary)'}`
+}
 
 export const AIR_YEARS = Array.from(
   new Set(CITY.neighborhoods.flatMap((n) => n.pm25.map((p) => p.period))),

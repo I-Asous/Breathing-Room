@@ -52,7 +52,7 @@ export function briefFromFacts(facts: BriefFacts, question = ''): string {
   }. Those are production counts, not a census of every apartment.`
 
   const limit =
-    ' NYCCAS annual means in this atlas stop in 2024, the year before congestion pricing. They do not score the toll. Rent listings run through August 2026.'
+    ' NYCCAS annual neighborhood means in this atlas stop in 2024, the year before congestion pricing. They do not score the toll. A handful of real EPA monitors show 2025-2026 readings where they exist, marked apart from the modeled map. Rent listings run through August 2026.'
 
   let answer = ''
   if (focus.includes('asthma') || focus.includes('health') || focus.includes('child')) {
