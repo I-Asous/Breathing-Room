@@ -45,18 +45,33 @@
 .map-frame svg {
   display: block;
   height: auto;
+  overflow: hidden;
   width: 100%;
+}
+
+.map-zoom {
+  transition: transform 420ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .hood {
   cursor: pointer;
   stroke: var(--color-foreground);
   stroke-width: 0.6;
-  transition: fill 160ms ease;
+  /* Keep lines hairline-thin when the map zooms into a borough. */
+  vector-effect: non-scaling-stroke;
+  transition: fill 160ms ease, opacity 220ms ease;
 }
 
 .hood.is-selected {
   stroke-width: 2.2;
+}
+
+.hood.is-outside {
+  opacity: 0.18;
+}
+
+.hood.is-outside:hover {
+  opacity: 0.4;
 }
 
 .hood.is-missing {
@@ -146,6 +161,28 @@
   padding: 0.3rem 0.4rem 0.3rem 0;
 }
 
+.borough-table tr.is-current td {
+  background: var(--color-muted);
+}
+
+.borough-link {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border);
+  text-underline-offset: 3px;
+}
+
+.borough-link:hover {
+  text-decoration-color: currentColor;
+}
+
 .borough-table td {
   border-top: 1px solid var(--color-border);
   padding: 0.38rem 0.4rem 0.38rem 0;
@@ -178,5 +215,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hood { transition: none; }
+  .hood,
+  .map-zoom { transition: none; }
 }

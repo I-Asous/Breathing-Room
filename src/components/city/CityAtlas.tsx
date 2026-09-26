@@ -1,21 +1,24 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { neighborhoodPaths, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
+import { fitTransform, neighborhoodPaths, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
 import {
   AIR_YEARS,
+  BOROUGHS,
   CITY,
   RENT_MONTHS,
   airAt,
-  askingAt,
+  boroughSummary,
   factsFor,
   formatCount,
   formatPercent,
   formatRent,
   formatUg,
+  isBorough,
   last,
   neighborhoodById,
   percentChange,
   readingFor,
+  type Borough,
   type Layer,
   type Neighborhood,
 } from '@/lib/metrics'
@@ -23,6 +26,9 @@ import { briefFromFacts } from '@/lib/brief'
 import './atlas.css'
 
 const PATHS = neighborhoodPaths()
+const BOROUGH_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.borough]))
+const NAME_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.name]))
+const CITY_VIEW = fitTransform([])
 const LAYERS: { id: Layer; label: string; hint: string }[] = [
   { id: 'stack', label: 'Stack', hint: 'PM2.5, one-bedroom asking rent, and child asthma, averaged.' },
   { id: 'air', label: 'Air', hint: 'Annual mean PM2.5 from the community air survey.' },
@@ -50,20 +56,15 @@ function Spark({ values }: { values: number[] }) {
 }
 
 function boroughRows() {
-  const names = ['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island']
-  return names.map((borough) => {
-    const rows = CITY.neighborhoods.filter((n) => n.borough === borough)
-    const pm = rows
-      .map((n) => airAt(n.pm25, '2024'))
-      .filter((v): v is number => v != null)
-      .sort((a, b) => a - b)
-    const rents = rows
-      .map((n) => last(n.asking1br)?.median1br)
-      .filter((v): v is number => v != null)
-      .sort((a, b) => a - b)
-    const mid = (list: number[]) => (list.length ? list[Math.floor(list.length / 2)] : null)
-    const deep = rows.reduce((sum, n) => sum + n.housing.since2014eli, 0)
-    return { borough, pm: mid(pm), rent: mid(rents), deep, count: rows.length }
+  return BOROUGHS.map((borough) => {
+    const summary = boroughSummary(borough)
+    return {
+      borough,
+      pm: airAt(summary.pm25, '2024'),
+      rent: last(summary.asking1br)?.median1br ?? null,
+      deep: summary.deep,
+      count: summary.count,
+    }
   })
 }
 
@@ -79,6 +80,27 @@ export default function CityAtlas() {
 
   const selected = neighborhoodById(params.get('n'))
   const focus: Neighborhood | null = selected
+  const boroughParam = params.get('b')
+  // A chosen neighborhood always decides the borough, so a stale `b` cannot disagree with it.
+  const borough: Borough | null = focus
+    ? isBorough(focus.borough)
+      ? focus.borough
+      : null
+    : isBorough(boroughParam)
+      ? boroughParam
+      : null
+  const area = useMemo(() => (borough ? boroughSummary(borough) : null), [borough])
+  const scope = focus ?? area ?? CITY.citywide
+  const zoom = useMemo(
+    () =>
+      borough
+        ? fitTransform(PATHS.filter((path) => BOROUGH_OF.get(path.id) === borough).map((path) => path.box))
+        : CITY_VIEW,
+    [borough],
+  )
+  const choices = borough
+    ? CITY.neighborhoods.filter((n) => n.borough === borough)
+    : CITY.neighborhoods
 
   const readings = useMemo(() => {
     const map = new Map<string, ReturnType<typeof readingFor>>()
@@ -93,6 +115,18 @@ export default function CityAtlas() {
   function choose(id: string) {
     const next = new URLSearchParams(params)
     next.set('n', id)
+    const home = BOROUGH_OF.get(id)
+    if (home) next.set('b', home)
+    setParams(next, { replace: true })
+    setBrief(null)
+    setBriefStatus('idle')
+  }
+
+  function chooseBorough(name: Borough | null) {
+    const next = new URLSearchParams(params)
+    next.delete('n')
+    if (name) next.set('b', name)
+    else next.delete('b')
     setParams(next, { replace: true })
     setBrief(null)
     setBriefStatus('idle')
@@ -127,27 +161,27 @@ export default function CityAtlas() {
     }
   }
 
-  const pmNow = focus ? airAt(focus.pm25, '2024') : airAt(CITY.citywide.pm25, '2024')
-  const pmThen = focus ? airAt(focus.pm25, '2009') : airAt(CITY.citywide.pm25, '2009')
-  const no2Now = focus ? airAt(focus.no2, '2024') : airAt(CITY.citywide.no2, '2024')
-  const ask = focus ? last(focus.asking1br) : last(CITY.citywide.asking1br)
-  const askStart = focus ? focus.asking1br[0] : CITY.citywide.asking1br[0]
-  const zoriEnd = focus ? last(focus.zori) : last(CITY.citywide.zori)
-  const zori2019 = focus
-    ? focus.zori.find((p) => p.year === 2019)?.value
-    : CITY.citywide.zori.find((p) => p.year === 2019)?.value
-  const asthma = focus ? last(focus.asthmaChild) : last(CITY.citywide.asthmaChild)
+  const pmNow = airAt(scope.pm25, '2024')
+  const pmThen = airAt(scope.pm25, '2009')
+  const no2Now = airAt(scope.no2, '2024')
+  const ask = last(scope.asking1br)
+  const askStart = scope.asking1br[0]
+  const zoriEnd = last(scope.zori)
+  const zori2019 = scope.zori.find((p) => p.year === 2019)?.value
+  const asthma = last(scope.asthmaChild)
   const deep = focus
     ? focus.housing.since2014eli
-    : CITY.neighborhoods.reduce((sum, n) => sum + n.housing.since2014eli, 0)
+    : area
+      ? area.deep
+      : CITY.neighborhoods.reduce((sum, n) => sum + n.housing.since2014eli, 0)
   const pmChange = percentChange(pmThen, pmNow)
   const rentChange = percentChange(zori2019 ?? null, zoriEnd?.value ?? null)
   const sparkValues =
     layer === 'air'
-      ? (focus ? focus.pm25 : CITY.citywide.pm25).map((p) => p.value)
+      ? scope.pm25.map((p) => p.value)
       : layer === 'rent'
-        ? (focus ? focus.asking1br : CITY.citywide.asking1br).map((p) => p.median1br)
-        : (focus ? focus.zori : CITY.citywide.zori).map((p) => p.value)
+        ? scope.asking1br.map((p) => p.median1br)
+        : scope.zori.map((p) => p.value)
 
   const activeHint = LAYERS.find((item) => item.id === layer)?.hint
 
@@ -167,27 +201,49 @@ export default function CityAtlas() {
           ))}
         </div>
         <p className="text-sm text-muted-foreground mb-3">{activeHint}</p>
+        <div className="layer-rail borough-rail" role="group" aria-label="Borough">
+          <button type="button" aria-pressed={borough == null} onClick={() => chooseBorough(null)}>
+            All five
+          </button>
+          {BOROUGHS.map((name) => (
+            <button
+              key={name}
+              type="button"
+              aria-pressed={borough === name}
+              onClick={() => chooseBorough(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
         <div className="map-frame">
-          <svg viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} role="group" aria-label="New York neighborhoods">
-            {PATHS.map((path) => {
-              const reading = readings.get(path.id)
-              const tone = reading?.tone
-              return (
-                <path
-                  key={path.id}
-                  d={path.d}
-                  className={`hood${tone == null ? ' is-missing' : ` tone-${tone}`}${
-                    focus?.id === path.id ? ' is-selected' : ''
-                  }`}
-                  onClick={() => choose(path.id)}
-                >
-                  <title>
-                    {CITY.neighborhoods.find((n) => n.id === path.id)?.name}
-                    {reading ? ` — ${reading.label}` : ''}
-                  </title>
-                </path>
-              )
-            })}
+          <svg
+            viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
+            role="group"
+            aria-label={borough ? `${borough} neighborhoods` : 'New York neighborhoods'}
+          >
+            <g className="map-zoom" style={{ transform: zoom }}>
+              {PATHS.map((path) => {
+                const reading = readings.get(path.id)
+                const tone = reading?.tone
+                const outside = borough != null && BOROUGH_OF.get(path.id) !== borough
+                return (
+                  <path
+                    key={path.id}
+                    d={path.d}
+                    className={`hood${tone == null ? ' is-missing' : ` tone-${tone}`}${
+                      focus?.id === path.id ? ' is-selected' : ''
+                    }${outside ? ' is-outside' : ''}`}
+                    onClick={() => choose(path.id)}
+                  >
+                    <title>
+                      {NAME_OF.get(path.id)}
+                      {reading ? ` — ${reading.label}` : ''}
+                    </title>
+                  </path>
+                )
+              })}
+            </g>
           </svg>
           <div className="legend" aria-hidden="true">
             <span className="text-xs text-muted-foreground">Lighter</span>
@@ -233,11 +289,11 @@ export default function CityAtlas() {
             }}
           >
             <option value="" disabled>
-              Choose a neighborhood
+              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
             </option>
-            {CITY.neighborhoods.map((n) => (
+            {choices.map((n) => (
               <option key={n.id} value={n.id}>
-                {n.borough} — {n.name}
+                {borough ? n.name : `${n.borough} — ${n.name}`}
               </option>
             ))}
           </select>
@@ -256,8 +312,17 @@ export default function CityAtlas() {
           </thead>
           <tbody>
             {boroughs.map((row) => (
-              <tr key={row.borough}>
-                <td>{row.borough}</td>
+              <tr key={row.borough} className={borough === row.borough ? 'is-current' : undefined}>
+                <td>
+                  <button
+                    type="button"
+                    className="borough-link"
+                    aria-pressed={borough === row.borough}
+                    onClick={() => chooseBorough(borough === row.borough ? null : row.borough)}
+                  >
+                    {row.borough}
+                  </button>
+                </td>
                 <td>{formatUg(row.pm)}</td>
                 <td>{formatRent(row.rent)}</td>
                 <td>{formatCount(row.deep)}</td>
@@ -269,11 +334,26 @@ export default function CityAtlas() {
 
       <aside className="dossier">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {focus ? focus.borough : 'Citywide'}
+          {focus && borough ? (
+            <button type="button" className="borough-link" onClick={() => chooseBorough(borough)}>
+              ← {focus.borough}
+            </button>
+          ) : area ? (
+            <button type="button" className="borough-link" onClick={() => chooseBorough(null)}>
+              ← Citywide
+            </button>
+          ) : (
+            'Citywide'
+          )}
         </p>
         <h2 className="display text-4xl leading-none mt-1 mb-2">
-          {focus ? focus.name : 'All 42 neighborhoods'}
+          {focus ? focus.name : borough ?? 'All 42 neighborhoods'}
         </h2>
+        {!focus && area && (
+          <p className="text-xs text-muted-foreground mb-2">
+            {area.count} neighborhoods, read as their median.
+          </p>
+        )}
         <p className="mb-3">
           <Link to={focus ? `/home?n=${focus.id}` : '/home'} className="text-sm underline underline-offset-4">
             Pin a note on the field desk
@@ -339,7 +419,7 @@ export default function CityAtlas() {
           <p className="text-sm text-muted-foreground mb-3">
             {focus
               ? 'A briefing on this neighborhood, grounded in the figures above.'
-              : 'Pick a neighborhood, then ask about its air, rent, or housing.'}
+              : `Pick a neighborhood${borough ? ` in ${borough}` : ''}, then ask about its air, rent, or housing.`}
           </p>
           <textarea
             value={question}

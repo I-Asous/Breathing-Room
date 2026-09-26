@@ -66,10 +66,46 @@ function ringPath(ring: Ring): string {
     .concat(' Z')
 }
 
-export function neighborhoodPaths(): { id: string; d: string }[] {
+export type Box = { x0: number; y0: number; x1: number; y1: number }
+
+export type NeighborhoodPath = { id: string; d: string; box: Box }
+
+function ringBox(rings: Ring[]): Box {
+  const box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+  for (const ring of rings) {
+    for (const pair of ring) {
+      const [x, y] = project(pair[0], pair[1])
+      box.x0 = Math.min(box.x0, x)
+      box.y0 = Math.min(box.y0, y)
+      box.x1 = Math.max(box.x1, x)
+      box.y1 = Math.max(box.y1, y)
+    }
+  }
+  return box
+}
+
+export function neighborhoodPaths(): NeighborhoodPath[] {
   return features.map((feature) => {
     const geom = feature.geometry
     const rings = geom.type === 'Polygon' ? geom.coordinates : geom.coordinates.flat()
-    return { id: feature.properties.id, d: rings.map(ringPath).join(' ') }
+    return { id: feature.properties.id, d: rings.map(ringPath).join(' '), box: ringBox(rings) }
   })
+}
+
+/**
+ * CSS transform that fits `boxes` inside the map frame with a margin.
+ * Identity when there is nothing to fit.
+ */
+export function fitTransform(boxes: Box[], margin = 0.08): string {
+  if (!boxes.length) return 'translate(0px, 0px) scale(1)'
+  const x0 = Math.min(...boxes.map((b) => b.x0))
+  const y0 = Math.min(...boxes.map((b) => b.y0))
+  const x1 = Math.max(...boxes.map((b) => b.x1))
+  const y1 = Math.max(...boxes.map((b) => b.y1))
+  const w = x1 - x0
+  const h = y1 - y0
+  const scale = Math.min(MAP_WIDTH / (w * (1 + margin * 2)), MAP_HEIGHT / (h * (1 + margin * 2)))
+  const tx = (MAP_WIDTH - w * scale) / 2 - x0 * scale
+  const ty = (MAP_HEIGHT - h * scale) / 2 - y0 * scale
+  return `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${scale.toFixed(3)})`
 }
