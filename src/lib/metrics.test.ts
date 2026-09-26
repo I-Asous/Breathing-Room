@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { briefFromFacts } from './brief'
 import { fitTransform, neighborhoodPaths } from './geo'
-import { CITY, boroughSummary, factsFor, isBorough, median, percentile, toneIndex } from './metrics'
+import {
+  CITY,
+  boroughSummary,
+  deepPer1k,
+  householdsIn,
+  factsFor,
+  isBorough,
+  layerRange,
+  median,
+  percentile,
+  readingFor,
+  thirdIndex,
+  toneIndex,
+} from './metrics'
 
 describe('map', () => {
   it('draws every neighborhood', () => {
@@ -16,6 +29,46 @@ describe('percentile', () => {
     expect(percentile(2, [1, 2, 3])).toBeCloseTo(0.5)
     expect(toneIndex(0)).toBe(0)
     expect(toneIndex(1)).toBe(7)
+  })
+})
+
+describe('rent × asthma', () => {
+  it('splits a spread into thirds', () => {
+    expect(thirdIndex(0)).toBe(0)
+    expect(thirdIndex(0.5)).toBe(1)
+    expect(thirdIndex(1)).toBe(2)
+  })
+
+  it('keeps opposite neighborhoods apart instead of averaging them together', () => {
+    const month = CITY.neighborhoods[0].asking1br.at(-1)!.month
+    const pairOf = (name: string) => {
+      const hood = CITY.neighborhoods.find((n) => n.name === name)!
+      return readingFor(hood, 'pair', '2024', month, CITY.neighborhoods).pair
+    }
+    expect(pairOf('Upper East Side')).toEqual({ rent: 2, asthma: 0 })
+    expect(pairOf('Crotona - Tremont')).toEqual({ rent: 0, asthma: 2 })
+  })
+
+  it('labels the single-measure legend with real values', () => {
+    const air = layerRange('air', '2024', '2026-08', CITY.neighborhoods)
+    expect(air?.low).toMatch(/µg\/m³$/)
+    expect(layerRange('pair', '2024', '2026-08', CITY.neighborhoods)).toBeNull()
+  })
+})
+
+describe('deep units per 1,000 households', () => {
+  it('has households for every neighborhood', () => {
+    for (const n of CITY.neighborhoods) expect(householdsIn([n])).toBeGreaterThan(1000)
+    expect(householdsIn(CITY.neighborhoods)).toBeGreaterThan(3_000_000)
+  })
+
+  it('compares places of different size on the same footing', () => {
+    const rate = (name: string) => deepPer1k([CITY.neighborhoods.find((n) => n.name === name)!])!
+    const harlem = rate('East Harlem')
+    const row = CITY.neighborhoods.find((n) => n.name === 'East Harlem')!
+    expect(harlem).toBeCloseTo((1000 * row.housing.since2014eli) / householdsIn([row]))
+    expect(harlem).toBeGreaterThan(rate('Upper East Side'))
+    expect(boroughSummary('Bronx').deepPer1k).toBeCloseTo(deepPer1k(CITY.neighborhoods.filter((n) => n.borough === 'Bronx'))!)
   })
 })
 

@@ -50,7 +50,7 @@ export default function Landing() {
         </p>
         <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Breathing Room</h1>
         <p className="mt-5 max-w-xl text-base text-muted-foreground">
-          Forty-two neighborhoods. The air through 2024, one-bedroom asking rents through
+          Forty-two neighborhoods. The air through 2024, asking rents for new one-bedroom leases through
           August 2026, and where deeply affordable homes were actually built.
         </p>
 
@@ -85,6 +85,12 @@ export default function Landing() {
                 <span> — {source.publisher}</span>
               </li>
             ))}
+            <li>
+              <a className="underline underline-offset-4" href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">
+                American Community Survey 5-year, households by ZIP (B11001)
+              </a>
+              <span> — US Census Bureau, 2020–2024, summed into neighborhoods by NYC Health ZIP definition</span>
+            </li>
           </ul>
         </div>
       </footer>

@@ -1,4 +1,5 @@
 import city from '../data/city.json'
+import households from '../data/households.json'
 
 export type AirPoint = { period: string; value: number }
 export type ZoriPoint = { year: number; value: number }
@@ -72,7 +73,7 @@ export const AIR_YEARS = Array.from(
 
 export const RENT_MONTHS = CITY.citywide.asking1br.map((p) => p.month)
 
-export type Layer = 'stack' | 'air' | 'rent' | 'gap'
+export type Layer = 'air' | 'rent' | 'pair' | 'gap'
 
 export function airAt(series: AirPoint[], period: string): number | null {
   return series.find((p) => p.period === period)?.value ?? null
@@ -135,6 +136,16 @@ export function formatPercent(value: number | null): string {
 export type Reading = {
   tone: number | null
   label: string
+  /** Rent third and child-asthma third (0 low, 2 high), set only on the pair layer. */
+  pair?: { rent: number; asthma: number }
+}
+
+const THIRD_NAMES = ['low', 'middle', 'high']
+
+/** Which third of the peers a value falls in: 0, 1, or 2. */
+export function thirdIndex(share: number): number {
+  if (!Number.isFinite(share)) return 0
+  return Math.max(0, Math.min(2, Math.floor(share * 3)))
 }
 
 export function readingFor(
@@ -165,22 +176,81 @@ export function readingFor(
     }
   }
 
-  if (layer === 'gap') {
-    const gap = equityGap(neighborhood, peers, rentMonth)
-    if (gap == null) return { tone: null, label: 'Not enough rent data' }
+  if (layer === 'pair') {
+    const rent = latestAsking(neighborhood, rentMonth)
+    const asthma = last(neighborhood.asthmaChild)?.value
+    if (rent == null || asthma == null) return { tone: null, label: 'Missing rent or asthma' }
+    const rents = peers
+      .map((n) => latestAsking(n, rentMonth))
+      .filter((v): v is number => v != null)
+    const asthmas = peers
+      .map((n) => last(n.asthmaChild)?.value)
+      .filter((v): v is number => v != null)
+    const pair = {
+      rent: thirdIndex(percentile(rent, rents)),
+      asthma: thirdIndex(percentile(asthma, asthmas)),
+    }
     return {
-      tone: toneIndex((gap + 1) / 2),
-      label: gap >= 0.15 ? 'Rent high, deep units thin' : gap <= -0.15 ? 'More deep units' : 'Closer to the pack',
+      tone: null,
+      pair,
+      label: `Asking rent for new leases ${THIRD_NAMES[pair.rent]} (${formatRent(rent)}), child asthma ${
+        THIRD_NAMES[pair.asthma]
+      } (${formatCount(Math.round(asthma))} per 100,000)`,
     }
   }
 
-  const share = stackShare(neighborhood, peers)
-  if (share == null) return { tone: null, label: 'Incomplete record' }
-  return { tone: toneIndex(share), label: 'Combined pressure' }
+  const gap = equityGap(neighborhood, peers, rentMonth)
+  if (gap == null) return { tone: null, label: 'Not enough rent data' }
+  return {
+    tone: toneIndex((gap + 1) / 2),
+    label: gap >= 0.15 ? 'Rent high, deep units thin' : gap <= -0.15 ? 'More deep units' : 'Closer to the pack',
+  }
+}
+
+/** Lowest and highest value on a single-measure layer, for the legend ends. */
+export function layerRange(
+  layer: Layer,
+  airYear: string,
+  rentMonth: string,
+  peers: Neighborhood[],
+): { low: string; high: string } | null {
+  const values =
+    layer === 'air'
+      ? peers.map((n) => airAt(n.pm25, airYear))
+      : layer === 'rent'
+        ? peers.map((n) => askingAt(n.asking1br, rentMonth)?.median1br ?? null)
+        : []
+  const found = values.filter((v): v is number => v != null)
+  if (!found.length) return null
+  const low = Math.min(...found)
+  const high = Math.max(...found)
+  return layer === 'air'
+    ? { low: `${formatUg(low)} µg/m³`, high: `${formatUg(high)} µg/m³` }
+    : { low: formatRent(low), high: formatRent(high) }
 }
 
 function latestAsking(neighborhood: Neighborhood, month: string): number | null {
   return askingAt(neighborhood.asking1br, month)?.median1br ?? last(neighborhood.asking1br)?.median1br ?? null
+}
+
+const HOUSEHOLDS: Record<string, number> = households.byUhf
+export const HOUSEHOLDS_PERIOD = households.period
+
+/** Households in a set of neighborhoods, from the ACS 5-year ZIP counts. */
+export function householdsIn(rows: Neighborhood[]): number {
+  return rows.reduce((sum, n) => sum + (HOUSEHOLDS[n.id] ?? 0), 0)
+}
+
+/** Deeply affordable units started since 2014 per 1,000 households, so large and small places compare. */
+export function deepPer1k(rows: Neighborhood[]): number | null {
+  const count = householdsIn(rows)
+  if (!count) return null
+  return (1000 * rows.reduce((sum, n) => sum + n.housing.since2014eli, 0)) / count
+}
+
+export function formatRate(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return value < 10 ? value.toFixed(1) : String(Math.round(value))
 }
 
 export function equityGap(
@@ -193,37 +263,12 @@ export function equityGap(
   const rents = peers
     .map((n) => latestAsking(n, rentMonth))
     .filter((v): v is number => v != null)
-  const units = peers.map((n) => n.housing.since2014eli)
+  const rates = peers.map((n) => deepPer1k([n])).filter((v): v is number => v != null)
+  const rate = deepPer1k([neighborhood])
+  if (rate == null) return null
   const rentShare = percentile(rent, rents)
-  const unitShare = percentile(neighborhood.housing.since2014eli, units)
+  const unitShare = percentile(rate, rates)
   return rentShare - unitShare
-}
-
-export function stackShare(neighborhood: Neighborhood, peers: Neighborhood[]): number | null {
-  const parts: number[] = []
-  const pm = airAt(neighborhood.pm25, '2024') ?? last(neighborhood.pm25)?.value
-  if (pm != null) {
-    const all = peers
-      .map((n) => airAt(n.pm25, '2024') ?? last(n.pm25)?.value)
-      .filter((v): v is number => v != null)
-    parts.push(percentile(pm, all))
-  }
-  const rent = last(neighborhood.asking1br)?.median1br
-  if (rent != null) {
-    const all = peers
-      .map((n) => last(n.asking1br)?.median1br)
-      .filter((v): v is number => v != null)
-    parts.push(percentile(rent, all))
-  }
-  const asthma = last(neighborhood.asthmaChild)?.value
-  if (asthma != null) {
-    const all = peers
-      .map((n) => last(n.asthmaChild)?.value)
-      .filter((v): v is number => v != null)
-    parts.push(percentile(asthma, all))
-  }
-  if (!parts.length) return null
-  return parts.reduce((sum, n) => sum + n, 0) / parts.length
 }
 
 export type BriefFacts = {
@@ -250,6 +295,7 @@ export type BriefFacts = {
   zori_last: number | null
   zori_last_year: number | null
   deep_units: number
+  deep_per_1k_households: number | null
   counted_units: number
 }
 
@@ -285,6 +331,7 @@ export function factsFor(neighborhood: Neighborhood): BriefFacts {
     zori_last: zoriEnd?.value ?? null,
     zori_last_year: zoriEnd?.year ?? null,
     deep_units: neighborhood.housing.since2014eli,
+    deep_per_1k_households: deepPer1k([neighborhood]),
     counted_units: neighborhood.housing.since2014counted,
   }
 }
@@ -322,7 +369,7 @@ function medianSeries<P, K extends string | number>(
     .map(([k, points]) => ({ key: k, value: median(points.map(value)) ?? 0, points }))
 }
 
-export type AreaSummary = CityData['citywide'] & { deep: number; count: number }
+export type AreaSummary = CityData['citywide'] & { deep: number; deepPer1k: number | null; count: number }
 
 /** A borough read as the median of its neighborhoods, the same way the borough table reads it. */
 export function boroughSummary(borough: Borough): AreaSummary {
@@ -349,6 +396,7 @@ export function boroughSummary(borough: Borough): AreaSummary {
       }),
     ),
     deep: rows.reduce((sum, n) => sum + n.housing.since2014eli, 0),
+    deepPer1k: deepPer1k(rows),
     count: rows.length,
   }
 }

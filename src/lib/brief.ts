@@ -1,4 +1,4 @@
-import { formatCount, formatPercent, formatRent, formatUg, percentChange, type BriefFacts } from './metrics'
+import { formatCount, formatPercent, formatRate, formatRent, formatUg, percentChange, type BriefFacts } from './metrics'
 
 /**
  * A briefing written only from the snapshot. Used when the Grok request
@@ -46,6 +46,10 @@ export function briefFromFacts(facts: BriefFacts, question = ''): string {
   ].join('')
 
   const homes = ` Since 2014, housing-preservation records count ${formatCount(facts.deep_units)} extremely-low and very-low income units in projects started here${
+    facts.deep_per_1k_households != null
+      ? ` (${formatRate(facts.deep_per_1k_households)} per 1,000 households)`
+      : ''
+  }${
     facts.counted_units
       ? `, inside ${formatCount(facts.counted_units)} counted rental units`
       : ''

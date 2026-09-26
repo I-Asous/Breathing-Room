@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { fitTransform, neighborhoodPaths, project, MAP_HEIGHT, MAP_WIDTH } from '@/lib/geo'
+import StreetMap, { hoodColor, type HoodPaint, type MapPin } from '@/components/city/StreetMap'
 import {
   AIR_YEARS,
   BOROUGHS,
@@ -12,10 +12,15 @@ import {
   factsFor,
   formatCount,
   formatPercent,
+  formatRate,
   formatRent,
+  deepPer1k,
+  householdsIn,
+  HOUSEHOLDS_PERIOD,
   formatUg,
   isBorough,
   last,
+  layerRange,
   monitorLabel,
   neighborhoodById,
   percentChange,
@@ -24,18 +29,28 @@ import {
   type Layer,
   type Neighborhood,
 } from '@/lib/metrics'
-import { interpretDesk } from '@/lib/desk'
+import { councilDistrictAt } from '@/lib/council'
+import { interpretDesk, type CouncilPin } from '@/lib/desk'
+import type { NextStep } from '@/lib/next-steps'
+import { findNeighborhood } from '@/lib/place-search'
+import { formatClock, hourAir, trafficMarkCount, WEEKDAY_CRZ_ENTRIES } from '@/lib/traffic-day'
 import './atlas.css'
 
-const PATHS = neighborhoodPaths()
 const BOROUGH_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.borough]))
 const NAME_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.name]))
-const CITY_VIEW = fitTransform([])
 const LAYERS: { id: Layer; label: string; hint: string }[] = [
-  { id: 'stack', label: 'Stack', hint: 'PM2.5, one-bedroom asking rent, and child asthma, averaged.' },
   { id: 'air', label: 'Air', hint: 'Annual mean PM2.5 from the community air survey.' },
-  { id: 'rent', label: 'Rent', hint: 'Median asking rent on one-bedroom listings.' },
-  { id: 'gap', label: 'Gap', hint: 'High asking rent beside thin deeply affordable production since 2014.' },
+  {
+    id: 'rent',
+    label: 'Rent',
+    hint: 'Median asking rent for new one-bedroom leases, from listings. Tenants already in place, including rent-stabilized ones, often pay less.',
+  },
+  {
+    id: 'pair',
+    label: 'Rent × asthma',
+    hint: 'Asking rent for new one-bedroom leases against child asthma ED visits tied to PM2.5 (2017–19), each split into thirds of the 42 neighborhoods. Brick is rent, slate is asthma, dark ink is both.',
+  },
+  { id: 'gap', label: 'Gap', hint: 'Asking rent for new leases beside deeply affordable units per 1,000 households, started since 2014.' },
 ]
 
 function Spark({ values }: { values: number[] }) {
@@ -57,6 +72,15 @@ function Spark({ values }: { values: number[] }) {
   )
 }
 
+function councilFor(
+  pin: MapPin | null,
+  neighborhoodId: string | null,
+  district: number | null,
+): CouncilPin | null {
+  if (!pin || district == null || !neighborhoodId || pin.id !== neighborhoodId) return null
+  return { district, neighborhoodId: pin.id }
+}
+
 function boroughRows() {
   return BOROUGHS.map((borough) => {
     const summary = boroughSummary(borough)
@@ -65,6 +89,7 @@ function boroughRows() {
       pm: airAt(summary.pm25, '2024'),
       rent: last(summary.asking1br)?.median1br ?? null,
       deep: summary.deep,
+      deepPer1k: summary.deepPer1k,
       count: summary.count,
     }
   })
@@ -72,15 +97,27 @@ function boroughRows() {
 
 export default function CityAtlas() {
   const [params, setParams] = useSearchParams()
-  const [layer, setLayer] = useState<Layer>('stack')
+  const [layer, setLayer] = useState<Layer>('air')
   const [showMonitors, setShowMonitors] = useState(true)
   const [activeMonitorId, setActiveMonitorId] = useState<string | null>(null)
   const [airYear, setAirYear] = useState('2024')
   const [rentMonth, setRentMonth] = useState(RENT_MONTHS[RENT_MONTHS.length - 1] ?? '2026-08')
   const [question, setQuestion] = useState('')
-  const [brief, setBrief] = useState<{ source: string; text: string } | null>(null)
+  const [brief, setBrief] = useState<{
+    source: string
+    spoken: string
+    steps: NextStep[]
+    notice?: string
+  } | null>(null)
+  const [councilDistrict, setCouncilDistrict] = useState<number | null>(null)
   const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [briefError, setBriefError] = useState('')
+  const [placeQuery, setPlaceQuery] = useState('')
+  const [placeStatus, setPlaceStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [placeNote, setPlaceNote] = useState('')
+  const [hour, setHour] = useState(8)
+  const [playing, setPlaying] = useState(true)
+  const [pin, setPin] = useState<MapPin | null>(null)
 
   const selected = neighborhoodById(params.get('n'))
   const focus: Neighborhood | null = selected
@@ -95,13 +132,28 @@ export default function CityAtlas() {
       : null
   const area = useMemo(() => (borough ? boroughSummary(borough) : null), [borough])
   const scope = focus ?? area ?? CITY.citywide
-  const zoom = useMemo(
-    () =>
-      borough
-        ? fitTransform(PATHS.filter((path) => BOROUGH_OF.get(path.id) === borough).map((path) => path.box))
-        : CITY_VIEW,
-    [borough],
-  )
+  const zoomed = borough != null
+  useEffect(() => {
+    if (!zoomed || !playing) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const timer = window.setInterval(() => setHour((current) => (current + 1) % 24), 900)
+    return () => window.clearInterval(timer)
+  }, [zoomed, playing])
+
+  useEffect(() => {
+    if (!pin) {
+      setCouncilDistrict(null)
+      return
+    }
+    let cancel = false
+    void councilDistrictAt(pin.lon, pin.lat).then((district) => {
+      if (!cancel) setCouncilDistrict(district)
+    })
+    return () => {
+      cancel = true
+    }
+  }, [pin])
+
   const choices = borough
     ? CITY.neighborhoods.filter((n) => n.borough === borough)
     : CITY.neighborhoods
@@ -114,6 +166,11 @@ export default function CityAtlas() {
     return map
   }, [layer, airYear, rentMonth])
 
+  const range = useMemo(
+    () => layerRange(layer, airYear, rentMonth, CITY.neighborhoods),
+    [layer, airYear, rentMonth],
+  )
+
   const boroughs = useMemo(() => boroughRows(), [])
 
   function choose(id: string) {
@@ -122,8 +179,34 @@ export default function CityAtlas() {
     const home = BOROUGH_OF.get(id)
     if (home) next.set('b', home)
     setParams(next, { replace: true })
+    setPin(null)
     setBrief(null)
     setBriefStatus('idle')
+  }
+
+  async function findPlace() {
+    setPlaceStatus('loading')
+    setPlaceNote('')
+    const match = await findNeighborhood(placeQuery)
+    if ('error' in match) {
+      setPlaceStatus('error')
+      setPlaceNote(match.error)
+      return
+    }
+    const next = new URLSearchParams(params)
+    next.set('n', match.id)
+    const home = BOROUGH_OF.get(match.id)
+    if (home) next.set('b', home)
+    setParams(next, { replace: true })
+    setPin(
+      match.lon != null && match.lat != null
+        ? { id: match.id, lon: match.lon, lat: match.lat, label: match.matched }
+        : null,
+    )
+    setBrief(null)
+    setBriefStatus('idle')
+    setPlaceStatus('idle')
+    setPlaceNote(`${match.matched} is in ${NAME_OF.get(match.id)}, ${BOROUGH_OF.get(match.id)}.`)
   }
 
   function chooseBorough(name: Borough | null) {
@@ -132,6 +215,7 @@ export default function CityAtlas() {
     if (name) next.set('b', name)
     else next.delete('b')
     setParams(next, { replace: true })
+    setPin(null)
     setBrief(null)
     setBriefStatus('idle')
   }
@@ -146,16 +230,24 @@ export default function CityAtlas() {
       const response = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: asked || 'Brief this neighborhood.', priorId }),
+        body: JSON.stringify({
+          text: asked || 'Brief this neighborhood.',
+          priorId,
+          lon: pin && pin.id === priorId ? pin.lon : undefined,
+          lat: pin && pin.id === priorId ? pin.lat : undefined,
+        }),
       })
       if (!response.ok) throw new Error('The desk did not answer.')
       const payload = (await response.json()) as {
         source?: string
         text?: string
+        spoken?: string
+        steps?: NextStep[]
         notice?: string
         neighborhoodId?: string | null
       }
-      if (!payload.text) throw new Error('The desk came back empty.')
+      const spoken = payload.spoken || payload.text
+      if (!spoken) throw new Error('The desk came back empty.')
       if (payload.neighborhoodId && payload.neighborhoodId !== priorId) {
         const next = new URLSearchParams(params)
         next.set('n', payload.neighborhoodId)
@@ -163,17 +255,28 @@ export default function CityAtlas() {
       }
       setBrief({
         source: payload.source === 'grok' ? 'Grok' : 'Computed from the open data',
-        text: payload.notice ? `${payload.text} ${payload.notice}` : payload.text,
+        spoken,
+        steps: Array.isArray(payload.steps) ? payload.steps : [],
+        notice: payload.notice,
       })
       setBriefStatus('idle')
     } catch {
-      const local = interpretDesk(asked || 'Brief this neighborhood.', priorId, window.location.origin)
+      const local = interpretDesk(
+        asked || 'Brief this neighborhood.',
+        priorId,
+        window.location.origin,
+        councilFor(pin, priorId, councilDistrict),
+      )
       if (local.neighborhoodId && local.neighborhoodId !== priorId) {
         const next = new URLSearchParams(params)
         next.set('n', local.neighborhoodId)
         setParams(next, { replace: true })
       }
-      setBrief({ source: 'Computed from the open data', text: local.text })
+      setBrief({
+        source: 'From the neighborhood record',
+        spoken: local.spoken,
+        steps: local.steps,
+      })
       setBriefError('The desk could not be reached, so this reply uses the numbers already on the map.')
       setBriefStatus('error')
     }
@@ -182,16 +285,48 @@ export default function CityAtlas() {
   const pmNow = airAt(scope.pm25, '2024')
   const pmThen = airAt(scope.pm25, '2009')
   const no2Now = airAt(scope.no2, '2024')
+  const cityNo2 = airAt(CITY.citywide.no2, '2024')
+  const day = hourAir(no2Now, pmNow, hour)
+  const markCount = trafficMarkCount(day.relative, no2Now, cityNo2)
+  const scopeIds = useMemo(
+    () =>
+      focus ? [focus.id] : borough ? CITY.neighborhoods.filter((n) => n.borough === borough).map((n) => n.id) : [],
+    [focus, borough],
+  )
+  const paints = useMemo<HoodPaint[]>(() => {
+    const haze = Math.min(0.16, Math.max(0, (day.relative - 0.5) * 0.16))
+    return CITY.neighborhoods.map((neighborhood) => {
+      const reading = readings.get(neighborhood.id)
+      const outside = borough != null && neighborhood.borough !== borough
+      const inView = !outside && zoomed
+      return {
+        id: neighborhood.id,
+        color: hoodColor(reading),
+        opacity: outside ? 0.14 : inView ? 0.46 + haze : 0.55,
+        line: outside ? 0.22 : focus?.id === neighborhood.id ? 1 : 0.72,
+        selected: focus?.id === neighborhood.id ? 1 : 0,
+      }
+    })
+  }, [readings, borough, focus, day.relative, zoomed])
+  const monitors = useMemo(
+    () => CITY.airMonitors.map((monitor) => ({ id: monitor.id, lon: monitor.lon, lat: monitor.lat, title: monitor.name })),
+    [],
+  )
+  const traffic = zoomed ? { count: markCount, hour, playing, relative: day.relative } : null
+  const maxEntries = Math.max(...WEEKDAY_CRZ_ENTRIES)
   const ask = last(scope.asking1br)
   const askStart = scope.asking1br[0]
   const zoriEnd = last(scope.zori)
   const zori2019 = scope.zori.find((p) => p.year === 2019)?.value
   const asthma = last(scope.asthmaChild)
-  const deep = focus
-    ? focus.housing.since2014eli
-    : area
-      ? area.deep
-      : CITY.neighborhoods.reduce((sum, n) => sum + n.housing.since2014eli, 0)
+  const deepRows = focus
+    ? [focus]
+    : borough
+      ? CITY.neighborhoods.filter((n) => n.borough === borough)
+      : CITY.neighborhoods
+  const deep = deepRows.reduce((sum, n) => sum + n.housing.since2014eli, 0)
+  const deepRate = deepPer1k(deepRows)
+  const deepHouseholds = householdsIn(deepRows)
   const pmChange = percentChange(pmThen, pmNow)
   const rentChange = percentChange(zori2019 ?? null, zoriEnd?.value ?? null)
   const sparkValues =
@@ -203,10 +338,43 @@ export default function CityAtlas() {
 
   const activeHint = LAYERS.find((item) => item.id === layer)?.hint
   const activeMonitor = CITY.airMonitors.find((m) => m.id === activeMonitorId) ?? null
+  const councilPin = councilFor(pin, focus?.id ?? null, councilDistrict)
+  const localDesk = focus ? interpretDesk(focus.name, null, '', councilPin) : null
+  const speech = brief?.spoken ?? localDesk?.spoken ?? ''
+  const steps = brief?.steps.length ? brief.steps : (localDesk?.steps ?? [])
+  const deskSource = brief?.source ?? (focus ? 'From the neighborhood record' : '')
 
   return (
     <div className="atlas">
       <div>
+        <form
+          className="place-search"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void findPlace()
+          }}
+        >
+          <label htmlFor="place-query" className="text-sm text-muted-foreground">
+            Find your block — a street address or ZIP
+          </label>
+          <div className="place-search-row">
+            <input
+              id="place-query"
+              type="search"
+              value={placeQuery}
+              placeholder="2 E 116th St, or 11216"
+              autoComplete="street-address"
+              onChange={(event) => setPlaceQuery(event.target.value)}
+            />
+            <button type="submit" disabled={placeStatus === 'loading' || !placeQuery.trim()}>
+              {placeStatus === 'loading' ? 'Finding…' : 'Find'}
+            </button>
+          </div>
+          <p className="text-sm mt-1" role="status">
+            {placeNote}
+          </p>
+        </form>
         <div className="layer-rail" role="group" aria-label="Map layer">
           {LAYERS.map((item) => (
             <button
@@ -244,64 +412,103 @@ export default function CityAtlas() {
           {showMonitors ? 'Hide' : 'Show'} EPA air monitors, 2025–26
         </button>
         <div className="map-frame">
-          <svg
-            viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
-            role="group"
-            aria-label={borough ? `${borough} neighborhoods` : 'New York neighborhoods'}
-          >
-            <g className="map-zoom" style={{ transform: zoom }}>
-              {PATHS.map((path) => {
-                const reading = readings.get(path.id)
-                const tone = reading?.tone
-                const outside = borough != null && BOROUGH_OF.get(path.id) !== borough
-                return (
-                  <path
-                    key={path.id}
-                    d={path.d}
-                    className={`hood${tone == null ? ' is-missing' : ` tone-${tone}`}${
-                      focus?.id === path.id ? ' is-selected' : ''
-                    }${outside ? ' is-outside' : ''}`}
-                    onClick={() => choose(path.id)}
-                  >
-                    <title>
-                      {NAME_OF.get(path.id)}
-                      {reading ? ` — ${reading.label}` : ''}
-                    </title>
-                  </path>
-                )
-              })}
-              {showMonitors &&
-                CITY.airMonitors.map((monitor) => {
-                  const [x, y] = project(monitor.lon, monitor.lat)
-                  const isActive = monitor.id === activeMonitorId
-                  return (
-                    <circle
-                      key={monitor.id}
-                      cx={x}
-                      cy={y}
-                      r={isActive ? 6 : 4}
-                      className={`monitor-dot${isActive ? ' is-active' : ''}`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setActiveMonitorId(isActive ? null : monitor.id)
-                      }}
-                    >
-                      <title>
-                        {monitor.name} — {monitorLabel(monitor)}
-                      </title>
-                    </circle>
-                  )
-                })}
-            </g>
-          </svg>
-          <div className="legend" aria-hidden="true">
-            <span className="text-xs text-muted-foreground">Lighter</span>
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
-              <i key={tone} className={`tone-${tone}`} />
-            ))}
-            <span className="text-xs text-muted-foreground">Heavier</span>
-          </div>
+          <StreetMap
+            paints={paints}
+            focusId={focus?.id ?? null}
+            scopeIds={scopeIds}
+            monitors={monitors}
+            showMonitors={showMonitors}
+            activeMonitorId={activeMonitorId}
+            onSelectHood={choose}
+            onSelectMonitor={(id) => setActiveMonitorId((current) => (current === id ? null : id))}
+            pin={pin}
+            traffic={traffic}
+          />
+          {layer === 'pair' ? (
+            <div
+              className="legend-pair"
+              role="img"
+              aria-label="Color key: rent thirds from left to right, child asthma thirds from bottom to top."
+            >
+              <span className="axis-y text-xs text-muted-foreground">Child asthma →</span>
+              <div className="grid" aria-hidden="true">
+                {[2, 1, 0].flatMap((asthma) =>
+                  [0, 1, 2].map((rent) => <i key={`${rent}${asthma}`} className={`bi-${rent}${asthma}`} />),
+                )}
+              </div>
+              <span />
+              <span className="text-xs text-muted-foreground">Rent →</span>
+            </div>
+          ) : (
+            <div className="legend">
+              <span className="text-xs text-muted-foreground">
+                {layer === 'gap' ? 'More deep units' : (range?.low ?? 'Lower')}
+              </span>
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
+                <i key={tone} className={`tone-${tone}`} aria-hidden="true" />
+              ))}
+              <span className="text-xs text-muted-foreground">
+                {layer === 'gap' ? 'Rent high, deep units thin' : (range?.high ?? 'Higher')}
+              </span>
+            </div>
+          )}
         </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Streets, route names, and house numbers are OpenStreetMap, via OpenFreeMap. The color is still the neighborhood survey.
+        </p>
+        {zoomed && (
+          <div className="day-clock">
+            <div className="day-clock-head">
+              <p className="text-sm">
+                <strong>{formatClock(hour)}</strong>
+                <span className="text-muted-foreground">
+                  {' '}
+                  · {formatCount(day.entries)} vehicles an hour enter the zone
+                </span>
+              </p>
+              <button type="button" className="monitor-toggle" onClick={() => setPlaying((value) => !value)}>
+                {playing ? 'Pause the day' : 'Play the day'}
+              </button>
+            </div>
+            <div className="day-bars" aria-hidden="true">
+              {WEEKDAY_CRZ_ENTRIES.map((entries, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={index === hour ? 'is-now' : undefined}
+                  style={{ height: `${Math.max(8, (entries / maxEntries) * 100)}%` }}
+                  onClick={() => {
+                    setHour(index)
+                    setPlaying(false)
+                  }}
+                >
+                  <span className="sr-only">{formatClock(index)}</span>
+                </button>
+              ))}
+            </div>
+            <label className="scrubber block text-sm">
+              <span className="text-muted-foreground">Hour of a weekday</span>
+              <input
+                type="range"
+                min={0}
+                max={23}
+                value={hour}
+                onChange={(event) => {
+                  setHour(Number(event.target.value))
+                  setPlaying(false)
+                }}
+              />
+            </label>
+            <p className="text-xs text-muted-foreground mt-2">
+              Weekday average from MTA counts of vehicles entering the Congestion Relief Zone.
+              {focus ? ` ${focus.name}` : ` ${borough}`} keeps its 2024 air as the level of the day:
+              estimated NO2 {formatUg(day.no2)} ppb and PM2.5 {formatUg(day.pm25)} µg/m³ at this hour,
+              against annual means of {formatUg(no2Now)} ppb and {formatUg(pmNow)} µg/m³. NO2 rises and
+              falls with the entries. PM2.5 moves less. The marks follow streets in view; they are not a count
+              of cars on that block. The survey does not record the hour, and this does not score the toll.
+            </p>
+          </div>
+        )}
         {showMonitors && (
           <p className="text-xs text-muted-foreground mt-2">
             Dots are real EPA monitors, not modeled for every neighborhood — NYC has only 14 for
@@ -374,14 +581,14 @@ export default function CityAtlas() {
         </label>
         <table className="borough-table">
           <caption className="text-left text-xs text-muted-foreground mb-1">
-            Median of neighborhoods, not of people. Deep units are extremely-low and very-low income homes in projects started since 2014.
+            PM2.5 and rent are the median of neighborhoods, not of people. Deep units are extremely-low and very-low income homes in projects started since 2014, per 1,000 households in the whole borough.
           </caption>
           <thead>
             <tr>
               <th>Borough</th>
               <th>PM2.5</th>
-              <th>1-bed</th>
-              <th>Deep units</th>
+              <th>1-bed, new lease</th>
+              <th>Deep units per 1,000 households</th>
             </tr>
           </thead>
           <tbody>
@@ -399,7 +606,7 @@ export default function CityAtlas() {
                 </td>
                 <td>{formatUg(row.pm)}</td>
                 <td>{formatRent(row.rent)}</td>
-                <td>{formatCount(row.deep)}</td>
+                <td title={`${formatCount(row.deep)} units`}>{formatRate(row.deepPer1k)}</td>
               </tr>
             ))}
           </tbody>
@@ -436,7 +643,7 @@ export default function CityAtlas() {
         <p className="text-sm text-muted-foreground mb-2">
           {focus
             ? readings.get(focus.id)?.label
-            : `PM2.5 ${formatUg(pmNow)} µg/m³ in 2024. One-bedrooms ${formatRent(ask?.median1br ?? null)}.`}
+            : `PM2.5 ${formatUg(pmNow)} µg/m³ in 2024. New one-bedroom leases ask ${formatRent(ask?.median1br ?? null)}.`}
         </p>
 
         <div className="figure-row">
@@ -449,10 +656,21 @@ export default function CityAtlas() {
             </div>
           </div>
         </div>
+        {zoomed && (
+          <div className="figure-row">
+            <strong>{formatUg(day.no2)}</strong>
+            <div>
+              <div>ppb NO2 at {formatClock(hour)}, estimated</div>
+              <div className={day.relative > 1 ? 'delta-pressure' : 'delta-relief'}>
+                PM2.5 {formatUg(day.pm25)} µg/m³ at the same hour · {formatCount(day.entries)} zone entries
+              </div>
+            </div>
+          </div>
+        )}
         <div className="figure-row">
           <strong>{formatRent(ask?.median1br ?? null)}</strong>
           <div>
-            <div>median 1-bedroom, {ask?.month ?? 'latest'}</div>
+            <div>median asking rent for a new 1-bedroom lease, {ask?.month ?? 'latest'}</div>
             <div className={rentChange != null && rentChange > 0 ? 'delta-pressure' : 'delta-relief'}>
               {zoriEnd
                 ? `Zillow index ${formatRent(zoriEnd.value)} in ${zoriEnd.year} (${formatPercent(rentChange)} since 2019)`
@@ -461,9 +679,12 @@ export default function CityAtlas() {
           </div>
         </div>
         <div className="figure-row">
-          <strong>{formatCount(deep)}</strong>
+          <strong>{formatRate(deepRate)}</strong>
           <div>
-            <div>deeply affordable units since 2014</div>
+            <div>deeply affordable units per 1,000 households, started since 2014</div>
+            <div className="text-muted-foreground">
+              {formatCount(deep)} units across {formatCount(deepHouseholds)} households (ACS {HOUSEHOLDS_PERIOD})
+            </div>
             <div className="text-muted-foreground">
               {asthma
                 ? `Child asthma ED visits tied to PM2.5: ${formatCount(Math.round(asthma.value))} per 100,000 (${asthma.period})`
@@ -475,15 +696,58 @@ export default function CityAtlas() {
         {sparkValues.length > 1 && (
           <p className="text-xs text-muted-foreground mt-1">
             {layer === 'rent'
-              ? 'Sparkline: one-bedroom asking rent, Feb 2025–Aug 2026.'
+              ? 'Sparkline: asking rent for new one-bedroom leases, Feb 2025–Aug 2026.'
               : layer === 'air'
                 ? 'Sparkline: annual PM2.5.'
                 : 'Sparkline: Zillow Observed Rent Index, annual.'}
           </p>
         )}
 
+        <section className="desk-agent mt-8" aria-labelledby="desk-title">
+          <h3 id="desk-title" className="display text-2xl mb-1">
+            The desk
+          </h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            The numbers that change the decision, then the step to take.
+          </p>
+          {focus && speech ? (
+            <>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">{deskSource}</p>
+              <ul className="desk-read">
+                {speech
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+                  .map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+              </ul>
+              {steps.length > 0 && (
+                <div className="next-steps">
+                  <ol>
+                    {steps.map((step) => (
+                      <li key={step.kind}>
+                        <a href={step.href} target="_blank" rel="noreferrer">
+                          {step.title} ↗
+                        </a>
+                        <p className="text-sm text-muted-foreground">{step.note}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {brief?.notice && <p className="text-xs text-muted-foreground mt-2">{brief.notice}</p>}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Choose a neighborhood on the map. The desk will read its record and name where to take it: the health
+              report, a housing lottery or tenant help, and the council district for an address.
+            </p>
+          )}
+        </section>
+
         <form
-          className="brief-panel mt-8"
+          className="brief-panel mt-6"
           onSubmit={(event) => {
             event.preventDefault()
             void askDesk()
@@ -491,13 +755,12 @@ export default function CityAtlas() {
         >
           <h3 className="display text-2xl mb-1">Ask the desk</h3>
           <p className="text-sm text-muted-foreground mb-3">
-            Rent, 2024 air, and how the congestion toll applies. Name a neighborhood, or ask about the one
-            selected on the map. The same desk answers on iMessage.
+            Name a neighborhood, or ask about the one selected on the map. A follow-up keeps that place.
           </p>
           <textarea
             value={question}
             disabled={briefStatus === 'loading'}
-            placeholder={focus ? `Should I rent in ${focus.name}?` : 'Try East Harlem, Astoria, or Lower Manhattan'}
+            placeholder={focus ? `What should I do in ${focus.name}?` : 'Try East Harlem, Astoria, or Lower Manhattan'}
             onChange={(event) => setQuestion(event.target.value)}
             maxLength={500}
           />
@@ -514,19 +777,6 @@ export default function CityAtlas() {
               <button type="button" className="underline" onClick={() => void askDesk()}>
                 Try again
               </button>
-            </p>
-          )}
-          {brief && (
-            <div className="brief-answer">
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2 not-italic font-sans">
-                {brief.source}
-              </p>
-              <p>{brief.text}</p>
-            </div>
-          )}
-          {!brief && briefStatus === 'idle' && focus && (
-            <p className="text-sm text-muted-foreground mt-3">
-              The reply stays empty until you ask. It uses the open-data extract and the MTA toll schedule, and it does not score the toll.
             </p>
           )}
         </form>

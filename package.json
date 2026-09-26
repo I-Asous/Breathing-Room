@@ -39,6 +39,7 @@
     "deepspace": "0.33.1",
     "hono": "^4.12.34",
     "lucide-react": "^0.460.0",
+    "maplibre-gl": "^6.11.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router": "^7.1.0",

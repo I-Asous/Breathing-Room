@@ -48,6 +48,16 @@
   --tone-5: #cf8668;
   --tone-6: #a3533c;
   --tone-7: #6e3224;
+  /* Rent × child asthma: --bi-<rent third><asthma third>. Brick for rent, slate for asthma, ink where both are high. */
+  --bi-00: #f1ece2;
+  --bi-10: #e8bf9c;
+  --bi-20: #c9785a;
+  --bi-01: #b4c8cf;
+  --bi-11: #ada28f;
+  --bi-21: #966652;
+  --bi-02: #6c93a6;
+  --bi-12: #687773;
+  --bi-22: #5a4b42;
   --radius: 2px;
   --shadow-card: 0 1px 0 0 rgba(28, 25, 21, 0.04);
   --shadow-card-hover: 0 1px 0 0 rgba(28, 25, 21, 0.08);

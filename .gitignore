@@ -14,3 +14,6 @@ src/router.ts
 src/modals.tsx
 .claude/launch.json
 .claude/worktrees
+
+# Local Spectrum starter with its own git repo and .env; not part of this app
+breathing-room-divhacks/
