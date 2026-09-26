@@ -15,8 +15,8 @@
  * their own layout without inheriting it.
  */
 
-import { Suspense, type ReactNode } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Suspense, useEffect, useState, type ReactNode } from 'react'
+import { Link, Outlet } from 'react-router-dom'
 import { DeepSpaceAuthProvider, useAuthStatus } from 'deepspace'
 import { RecordProvider, RecordScope } from 'deepspace'
 import Navigation from '../../components/Navigation'
@@ -51,15 +51,40 @@ export default function AppLayout() {
  * check is one round-trip, and in-flow placeholders read as a layout jump.
  */
 function AuthBoot({ children }: { children: ReactNode }) {
-  const { isLoaded } = useAuthStatus()
+  const { isLoaded, status } = useAuthStatus()
+  const [stalled, setStalled] = useState(false)
+
+  useEffect(() => {
+    if (isLoaded) return
+    const timer = window.setTimeout(() => setStalled(true), 2500)
+    return () => window.clearTimeout(timer)
+  }, [isLoaded])
   // Record writes (`create`/`put`/`remove`) are fire-and-forget — they resolve
   // before the server answers, so a denied or invalid write only surfaces
   // through onWriteError. Route rejections to toasts so they're never a
   // silent no-op. Keep this wiring when customizing the layout.
   const { error, warning } = useToast()
 
-  if (!isLoaded) {
+  if (!isLoaded && status !== 'error' && !stalled) {
     return <div aria-busy="true" className="fixed inset-0 bg-background" />
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="mx-auto max-w-xl px-6 py-16">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">Field desk</p>
+        <h1 className="mt-2 text-4xl">Sign-in is not connected</h1>
+        <p className="mt-4 text-muted-foreground">
+          Shared notes need a DeepSpace session. The atlas on the front page does not. Run
+          auth login, then deepspace dev start, and this desk will open.
+        </p>
+        <p className="mt-6">
+          <Link to="/" className="underline underline-offset-4">
+            Back to the atlas
+          </Link>
+        </p>
+      </div>
+    )
   }
 
   return (
