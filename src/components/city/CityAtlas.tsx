@@ -243,6 +243,51 @@ export default function CityAtlas() {
         >
           {showMonitors ? 'Hide' : 'Show'} EPA air monitors, 2025–26
         </button>
+        {layer === 'air' && (
+          <label className="scrubber block text-sm">
+            <span className="text-muted-foreground">PM2.5 year {airYear}</span>
+            <input
+              type="range"
+              min={0}
+              max={AIR_YEARS.length - 1}
+              value={Math.max(0, AIR_YEARS.indexOf(airYear))}
+              onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
+            />
+          </label>
+        )}
+        {layer === 'rent' && (
+          <label className="scrubber block text-sm">
+            <span className="text-muted-foreground">Listings {rentMonth}</span>
+            <input
+              type="range"
+              min={0}
+              max={RENT_MONTHS.length - 1}
+              value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
+              onChange={(event) =>
+                setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)
+              }
+            />
+          </label>
+        )}
+        <label className="mt-4 block text-sm">
+          <span className="text-muted-foreground">Neighborhood</span>
+          <select
+            className="place-select mt-1"
+            value={focus?.id ?? ''}
+            onChange={(event) => {
+              if (event.target.value) choose(event.target.value)
+            }}
+          >
+            <option value="" disabled>
+              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
+            </option>
+            {choices.map((n) => (
+              <option key={n.id} value={n.id}>
+                {borough ? n.name : `${n.borough} — ${n.name}`}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="map-frame">
           <svg
             viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
@@ -327,51 +372,6 @@ export default function CityAtlas() {
             ))}
           </div>
         )}
-        {layer === 'air' && (
-          <label className="scrubber block text-sm">
-            <span className="text-muted-foreground">PM2.5 year {airYear}</span>
-            <input
-              type="range"
-              min={0}
-              max={AIR_YEARS.length - 1}
-              value={Math.max(0, AIR_YEARS.indexOf(airYear))}
-              onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
-            />
-          </label>
-        )}
-        {layer === 'rent' && (
-          <label className="scrubber block text-sm">
-            <span className="text-muted-foreground">Listings {rentMonth}</span>
-            <input
-              type="range"
-              min={0}
-              max={RENT_MONTHS.length - 1}
-              value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
-              onChange={(event) =>
-                setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)
-              }
-            />
-          </label>
-        )}
-        <label className="mt-4 block text-sm">
-          <span className="text-muted-foreground">Neighborhood</span>
-          <select
-            className="place-select mt-1"
-            value={focus?.id ?? ''}
-            onChange={(event) => {
-              if (event.target.value) choose(event.target.value)
-            }}
-          >
-            <option value="" disabled>
-              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
-            </option>
-            {choices.map((n) => (
-              <option key={n.id} value={n.id}>
-                {borough ? n.name : `${n.borough} — ${n.name}`}
-              </option>
-            ))}
-          </select>
-        </label>
         <table className="borough-table">
           <caption className="text-left text-xs text-muted-foreground mb-1">
             Median of neighborhoods, not of people. Deep units are extremely-low and very-low income homes in projects started since 2014.
