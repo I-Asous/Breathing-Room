@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Map as MapLibreMap, NavigationControl, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl'
+import { Map as MapLibreMap, NavigationControl, Popup, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl'
 import type { FeatureCollection } from 'geojson'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { formatUg, type MonitorPoint } from '@/lib/metrics'
 
 // The package worker imports a sibling chunk. Serving both from /maplibre keeps
 // that import working in Vite dev and in the production asset build.
@@ -47,7 +48,33 @@ export type HoodPaint = {
 
 export type MapPin = { id: string; lon: number; lat: number; label: string }
 
-export type MapMonitor = { id: string; lon: number; lat: number; title: string }
+export type MapMonitor = {
+  id: string
+  lon: number
+  lat: number
+  title: string
+  borough: string
+  pm25: MonitorPoint[]
+  no2: MonitorPoint[]
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
+}
+
+function pointRow(label: string, point: MonitorPoint): string {
+  const unit = label === 'PM2.5' ? 'µg/m³' : 'ppb'
+  const note = point.certified ? '' : ' (preliminary)'
+  return `<p>${label} ${formatUg(point.value)} ${unit}, ${point.year}${note}</p>`
+}
+
+function monitorPopupHtml(monitor: MapMonitor): string {
+  const rows = [...monitor.pm25.map((p) => pointRow('PM2.5', p)), ...monitor.no2.map((p) => pointRow('NO2', p))].join('')
+  return (
+    `<p class="monitor-popup-title"><strong>${escapeHtml(monitor.title)}</strong> · ${escapeHtml(monitor.borough)}</p>` +
+    `<div class="monitor-popup-body">${rows}</div>`
+  )
+}
 
 type Road = { coords: [number, number][]; seg: number[] }
 
@@ -207,11 +234,14 @@ export default function StreetMap({
   const scopeRef = useRef(scopeIds)
   const trafficRef = useRef(traffic)
   const drawTraffic = useRef<() => void>(() => {})
+  const popupRef = useRef<Popup | null>(null)
+  const activeMonitorIdRef = useRef(activeMonitorId)
   const [ready, setReady] = useState(false)
   onHood.current = onSelectHood
   onMonitor.current = onSelectMonitor
   scopeRef.current = scopeIds
   trafficRef.current = traffic
+  activeMonitorIdRef.current = activeMonitorId
 
   useEffect(() => {
     const container = containerRef.current
@@ -229,6 +259,15 @@ export default function StreetMap({
     map.touchZoomRotate.disableRotation()
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
+
+    const popup = new Popup({ closeButton: true, closeOnClick: false, offset: 14, maxWidth: '230px', className: 'monitor-popup' })
+    popup.on('close', () => {
+      // Fires both from the user's own × click and from our own `.remove()`
+      // calls below — only the id ref (always current) tells them apart, so
+      // this only clears state when something is actually still selected.
+      if (activeMonitorIdRef.current) onMonitor.current(activeMonitorIdRef.current)
+    })
+    popupRef.current = popup
 
     map.on('load', () => {
       const before = map.getStyle().layers?.find((layer) => layer.type === 'symbol')?.id
@@ -339,6 +378,8 @@ export default function StreetMap({
     observer.observe(container)
     return () => {
       observer.disconnect()
+      popup.remove()
+      popupRef.current = null
       map.remove()
       mapRef.current = null
       setReady(false)
@@ -369,6 +410,20 @@ export default function StreetMap({
         : EMPTY,
     )
   }, [monitors, showMonitors, activeMonitorId, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const popup = popupRef.current
+    if (!map || !popup || !ready) return
+    if (!activeMonitorId || !showMonitors) {
+      if (popup.isOpen()) popup.remove()
+      return
+    }
+    const monitor = monitors.find((m) => m.id === activeMonitorId)
+    if (!monitor) return
+    popup.setLngLat([monitor.lon, monitor.lat]).setHTML(monitorPopupHtml(monitor))
+    if (!popup.isOpen()) popup.addTo(map)
+  }, [activeMonitorId, monitors, showMonitors, ready])
 
   useEffect(() => {
     const map = mapRef.current

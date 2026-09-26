@@ -21,7 +21,6 @@ import {
   isBorough,
   last,
   layerRange,
-  monitorLabel,
   neighborhoodById,
   percentChange,
   readingFor,
@@ -381,7 +380,16 @@ export default function CityAtlas() {
   const bracket = budgetInput.trim() && Number.isFinite(budgetValue) ? neighborhoodsForBudget(budgetValue) : null
   const focusedPressure = focus ? (pressure.find((place) => place.id === focus.id) ?? null) : null
   const monitors = useMemo(
-    () => CITY.airMonitors.map((monitor) => ({ id: monitor.id, lon: monitor.lon, lat: monitor.lat, title: monitor.name })),
+    () =>
+      CITY.airMonitors.map((monitor) => ({
+        id: monitor.id,
+        lon: monitor.lon,
+        lat: monitor.lat,
+        title: monitor.name,
+        borough: monitor.borough,
+        pm25: monitor.pm25,
+        no2: monitor.no2,
+      })),
     [],
   )
   const traffic = zoomed ? { count: markCount, hour, playing, relative: day.relative } : null
@@ -414,7 +422,6 @@ export default function CityAtlas() {
       : view === 'pressure'
         ? 'Brick marks neighborhoods where new-lease asks rose at least one percentage point faster than the city, and 2024 PM2.5 or NO2 is still above the city mean.'
         : LAYERS.find((item) => item.id === layer)?.hint
-  const activeMonitor = CITY.airMonitors.find((m) => m.id === activeMonitorId) ?? null
   const councilPin = councilFor(pin, focus?.id ?? null, councilDistrict)
   const localDesk = focus ? interpretDesk(focus.name, null, '', councilPin) : null
   const speech = brief?.spoken ?? localDesk?.spoken ?? ''
@@ -512,6 +519,89 @@ export default function CityAtlas() {
         >
           {showMonitors ? 'Hide' : 'Show'} EPA air monitors, 2025–26
         </button>
+        {view === 'split' && (
+          <>
+            <div className="layer-rail" role="group" aria-label="Air pollutant">
+              <button type="button" aria-pressed={splitAir === 'pm25'} onClick={() => setSplitAir('pm25')}>
+                PM2.5
+              </button>
+              <button type="button" aria-pressed={splitAir === 'no2'} onClick={() => setSplitAir('no2')}>
+                NO2
+              </button>
+            </div>
+            <label className="scrubber block text-sm">
+              <span className="text-muted-foreground">
+                {splitAir === 'pm25' ? 'PM2.5' : 'NO2'} year {airYear}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={AIR_YEARS.length - 1}
+                value={Math.max(0, AIR_YEARS.indexOf(airYear))}
+                onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
+              />
+            </label>
+            <label className="scrubber block text-sm">
+              <span className="text-muted-foreground">Listings {rentMonth}</span>
+              <input
+                type="range"
+                min={0}
+                max={RENT_MONTHS.length - 1}
+                value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
+                onChange={(event) => setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)}
+              />
+            </label>
+            <p className="text-xs text-muted-foreground mt-2">
+              Both panes are the 42 neighborhoods. A ZIP’s listings are counted in the neighborhood that holds
+              their centroid. PM2.5 and NO2 are annual means through 2024, the year before the toll.
+            </p>
+          </>
+        )}
+        {view === 'single' && layer === 'air' && (
+          <label className="scrubber block text-sm">
+            <span className="text-muted-foreground">PM2.5 year {airYear}</span>
+            <input
+              type="range"
+              min={0}
+              max={AIR_YEARS.length - 1}
+              value={Math.max(0, AIR_YEARS.indexOf(airYear))}
+              onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
+            />
+          </label>
+        )}
+        {view === 'single' && layer === 'rent' && (
+          <label className="scrubber block text-sm">
+            <span className="text-muted-foreground">Listings {rentMonth}</span>
+            <input
+              type="range"
+              min={0}
+              max={RENT_MONTHS.length - 1}
+              value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
+              onChange={(event) =>
+                setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)
+              }
+            />
+          </label>
+        )}
+        <label className="mt-4 block text-sm">
+          <span className="text-muted-foreground">Neighborhood</span>
+          <select
+            className="place-select mt-1"
+            value={focus?.id ?? ''}
+            onChange={(event) => {
+              if (event.target.value) choose(event.target.value)
+            }}
+          >
+            <option value="" disabled>
+              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
+            </option>
+            {choices.map((n) => (
+              <option key={n.id} value={n.id}>
+                {borough ? n.name : `${n.borough} — ${n.name}`}
+              </option>
+            ))}
+          </select>
+        </label>
         {view === 'split' ? (
           <div className="map-split">
             <div className="map-pane">
@@ -676,108 +766,6 @@ export default function CityAtlas() {
             PM2.5 and 4 for NO2. Click one for its 2025–2026 reading.
           </p>
         )}
-        {activeMonitor && (
-          <div className="monitor-card mt-2">
-            <p className="text-sm">
-              <strong>{activeMonitor.name}</strong> · {activeMonitor.borough}
-            </p>
-            {activeMonitor.pm25.map((point) => (
-              <p key={`pm25-${point.year}`} className="text-sm text-muted-foreground">
-                PM2.5 {formatUg(point.value)} µg/m³, {point.year}
-                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
-              </p>
-            ))}
-            {activeMonitor.no2.map((point) => (
-              <p key={`no2-${point.year}`} className="text-sm text-muted-foreground">
-                NO2 {formatUg(point.value)} ppb, {point.year}
-                {point.certified ? '' : ' (preliminary, not yet EPA-certified)'}
-              </p>
-            ))}
-          </div>
-        )}
-        {view === 'split' && (
-          <>
-            <div className="layer-rail" role="group" aria-label="Air pollutant">
-              <button type="button" aria-pressed={splitAir === 'pm25'} onClick={() => setSplitAir('pm25')}>
-                PM2.5
-              </button>
-              <button type="button" aria-pressed={splitAir === 'no2'} onClick={() => setSplitAir('no2')}>
-                NO2
-              </button>
-            </div>
-            <label className="scrubber block text-sm">
-              <span className="text-muted-foreground">
-                {splitAir === 'pm25' ? 'PM2.5' : 'NO2'} year {airYear}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={AIR_YEARS.length - 1}
-                value={Math.max(0, AIR_YEARS.indexOf(airYear))}
-                onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
-              />
-            </label>
-            <label className="scrubber block text-sm">
-              <span className="text-muted-foreground">Listings {rentMonth}</span>
-              <input
-                type="range"
-                min={0}
-                max={RENT_MONTHS.length - 1}
-                value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
-                onChange={(event) => setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)}
-              />
-            </label>
-            <p className="text-xs text-muted-foreground mt-2">
-              Both panes are the 42 neighborhoods. A ZIP’s listings are counted in the neighborhood that holds
-              their centroid. PM2.5 and NO2 are annual means through 2024, the year before the toll.
-            </p>
-          </>
-        )}
-        {view === 'single' && layer === 'air' && (
-          <label className="scrubber block text-sm">
-            <span className="text-muted-foreground">PM2.5 year {airYear}</span>
-            <input
-              type="range"
-              min={0}
-              max={AIR_YEARS.length - 1}
-              value={Math.max(0, AIR_YEARS.indexOf(airYear))}
-              onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
-            />
-          </label>
-        )}
-        {view === 'single' && layer === 'rent' && (
-          <label className="scrubber block text-sm">
-            <span className="text-muted-foreground">Listings {rentMonth}</span>
-            <input
-              type="range"
-              min={0}
-              max={RENT_MONTHS.length - 1}
-              value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
-              onChange={(event) =>
-                setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)
-              }
-            />
-          </label>
-        )}
-        <label className="mt-4 block text-sm">
-          <span className="text-muted-foreground">Neighborhood</span>
-          <select
-            className="place-select mt-1"
-            value={focus?.id ?? ''}
-            onChange={(event) => {
-              if (event.target.value) choose(event.target.value)
-            }}
-          >
-            <option value="" disabled>
-              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
-            </option>
-            {choices.map((n) => (
-              <option key={n.id} value={n.id}>
-                {borough ? n.name : `${n.borough} — ${n.name}`}
-              </option>
-            ))}
-          </select>
-        </label>
         <table className="borough-table">
           <caption className="text-left text-xs text-muted-foreground mb-1">
             PM2.5 and rent are the median of neighborhoods, not of people. Deep units are extremely-low and very-low income homes in projects started since 2014, per 1,000 households in the whole borough.
