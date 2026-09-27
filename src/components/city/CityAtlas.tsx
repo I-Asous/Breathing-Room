@@ -460,6 +460,23 @@ export default function CityAtlas() {
               </div>
             )}
           </div>
+          {view === 'combined' && (
+            <div className="under-map">
+              <p className="text-sm">{SCORE_MEANS}</p>
+              <Weights weights={weights} onChange={setWeights} />
+              <p className="text-sm mt-3">{together.sentence}</p>
+              {together.names.length > 0 && (
+                <div className="name-row">
+                  {together.names.map((row) => (
+                    <button key={row.id} type="button" onClick={() => choose(row.id)}>
+                      {row.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground mt-2">{SCORE_LIMITS}</p>
+            </div>
+          )}
         </div>
 
         <aside className="dossier">
@@ -506,12 +523,6 @@ export default function CityAtlas() {
                     )}
                   </div>
                 </div>
-                <details className="fold">
-                  <summary>How this score is weighted</summary>
-                  <p className="text-sm mt-2">{SCORE_MEANS}</p>
-                  <Weights weights={weights} onChange={setWeights} />
-                  <p className="text-xs text-muted-foreground mt-2">{SCORE_LIMITS}</p>
-                </details>
               </section>
 
               <section className="theme-block" aria-labelledby="air-figure">
@@ -587,25 +598,83 @@ export default function CityAtlas() {
                   1,000 households. Latest new one-bedroom ask {formatRent(last(area.asking1br)?.median1br ?? null)}.
                 </p>
               )}
+              <section className="theme-block budget-block" aria-labelledby="premium-title">
+                <h3 id="premium-title">Where a budget can go</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Neighborhoods whose latest new one-bedroom ask is at or under that monthly rent, cleanest 2024 air
+                  first. The 30% figure is a budgeting rule, not a legal cap, and it does not say what you qualify for.
+                </p>
+                <div className="atlas-find dossier-find">
+                  <label className="block text-sm">
+                    <span className="text-muted-foreground">Yearly income</span>
+                    <input
+                      className="place-select mt-1"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      inputMode="numeric"
+                      placeholder="62000"
+                      value={incomeInput}
+                      onChange={(event) => setIncomeInput(event.target.value)}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="text-muted-foreground">
+                      {incomeCap != null ? 'Monthly rent is set from income until you clear it' : 'Or a target monthly rent'}
+                    </span>
+                    <input
+                      className="place-select mt-1"
+                      type="number"
+                      min={0}
+                      step={50}
+                      inputMode="numeric"
+                      placeholder="3000"
+                      disabled={incomeCap != null}
+                      value={budgetInput}
+                      onChange={(event) => setBudgetInput(event.target.value)}
+                    />
+                  </label>
+                </div>
+                {incomeCap != null && (
+                  <p className="text-sm mt-2">
+                    30% of {formatRent(incomeValue)} a year is {formatRent(incomeCap)} a month.
+                  </p>
+                )}
+                {bracket && bracket.rows.length === 0 && (
+                  <p className="text-sm mt-3">
+                    No neighborhood in this atlas has a new one-bedroom ask at or under {formatRent(bracket.budget)} in{' '}
+                    {monthLabel(bracket.month)}.
+                  </p>
+                )}
+                {bracket && bracket.rows.length > 0 && (
+                  <>
+                    <ol className="desk-read">
+                      {bracket.rows.map((row) => (
+                        <li key={row.id}>
+                          <button type="button" className="borough-link" onClick={() => choose(row.id)}>
+                            {row.name}
+                          </button>{' '}
+                          {formatRent(row.ask)}. PM2.5 {formatUg(row.pm25)} µg/m³.
+                        </li>
+                      ))}
+                    </ol>
+                    {bracket.insight && (
+                      <div className="next-steps">
+                        {bracket.insight.href.startsWith('http') ? (
+                          <a href={bracket.insight.href} target="_blank" rel="noreferrer">
+                            {bracket.insight.title} ↗
+                          </a>
+                        ) : (
+                          <Link to={bracket.insight.href}>{bracket.insight.title}</Link>
+                        )}
+                        <p className="text-sm text-muted-foreground">{bracket.insight.note}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
               <section className="theme-block" aria-labelledby="score-figure">
-                <h3 id="score-figure">Who carries all three</h3>
-                {borough && (
-                  <p className="text-xs text-muted-foreground mt-1">Across all 42 neighborhoods, not only {borough}.</p>
-                )}
-                <p className="text-sm mt-1">{together.sentence}</p>
-                {together.names.length > 0 && (
-                  <div className="name-row">
-                    {together.names.map((row) => (
-                      <button key={row.id} type="button" onClick={() => choose(row.id)}>
-                        {row.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <p className="text-sm mt-3">{SCORE_MEANS}</p>
-                <Weights weights={weights} onChange={setWeights} />
-                <p className="text-xs text-muted-foreground mt-2">{SCORE_LIMITS}</p>
-                <h3 className="mt-4">Heaviest with these weights</h3>
+                <h3 id="score-figure">Heaviest with these weights</h3>
                 <ol className="desk-read">
                   {rows.slice(0, 8).map((row) => (
                     <li key={row.id}>
@@ -622,83 +691,6 @@ export default function CityAtlas() {
         </aside>
       </div>
 
-      <section className="health-premium" aria-labelledby="premium-title">
-        <h3 id="premium-title" className="display text-2xl mb-1">
-          Where a budget can go
-        </h3>
-        <p className="text-sm text-muted-foreground mb-3">
-          Neighborhoods whose latest new one-bedroom ask is at or under that monthly rent, cleanest 2024 air first.
-          The 30% figure is a budgeting rule, not a legal cap, and it does not say what you qualify for.
-        </p>
-        <div className="atlas-find">
-          <label className="block text-sm">
-            <span className="text-muted-foreground">Yearly income</span>
-            <input
-              className="place-select mt-1"
-              type="number"
-              min={0}
-              step={1000}
-              inputMode="numeric"
-              placeholder="62000"
-              value={incomeInput}
-              onChange={(event) => setIncomeInput(event.target.value)}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-muted-foreground">
-              {incomeCap != null ? 'Monthly rent is set from income until you clear it' : 'Or a target monthly rent'}
-            </span>
-            <input
-              className="place-select mt-1"
-              type="number"
-              min={0}
-              step={50}
-              inputMode="numeric"
-              placeholder="3000"
-              disabled={incomeCap != null}
-              value={budgetInput}
-              onChange={(event) => setBudgetInput(event.target.value)}
-            />
-          </label>
-        </div>
-        {incomeCap != null && (
-          <p className="text-sm mt-2">
-            30% of {formatRent(incomeValue)} a year is {formatRent(incomeCap)} a month.
-          </p>
-        )}
-        {bracket && bracket.rows.length === 0 && (
-          <p className="text-sm mt-3">
-            No neighborhood in this atlas has a new one-bedroom ask at or under {formatRent(bracket.budget)} in{' '}
-            {monthLabel(bracket.month)}.
-          </p>
-        )}
-        {bracket && bracket.rows.length > 0 && (
-          <>
-            <ol className="desk-read">
-              {bracket.rows.map((row) => (
-                <li key={row.id}>
-                  <button type="button" className="borough-link" onClick={() => choose(row.id)}>
-                    {row.name}
-                  </button>{' '}
-                  {formatRent(row.ask)}. PM2.5 {formatUg(row.pm25)} µg/m³.
-                </li>
-              ))}
-            </ol>
-            {bracket.insight && (
-              <div className="next-steps">
-                {bracket.insight.href.startsWith('http') ? (
-                  <a href={bracket.insight.href} target="_blank" rel="noreferrer">
-                    {bracket.insight.title} ↗
-                  </a>
-                ) : (
-                  <Link to={bracket.insight.href}>{bracket.insight.title}</Link>
-                )}
-                <p className="text-sm text-muted-foreground">{bracket.insight.note}</p>
-              </div>
-            )}
-          </>
-        )}
-      </section>
       <DeskDock
         focusId={focus?.id ?? null}
         focusName={focus?.name ?? null}
