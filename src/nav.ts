@@ -16,6 +16,8 @@ export interface NavItem {
 }
 
 export const nav: NavItem[] = [
+  { path: '/cost', label: 'True cost' },
+  { path: '/listings', label: 'Listings' },
   { path: '/home', label: 'Forums' },
   { path: '/predict', label: 'Predictive Modeling' },
   { path: '/settings', label: 'Settings' },

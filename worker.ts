@@ -34,6 +34,7 @@ import {
 } from './src/server/http-routes.js'
 import { writeBrief } from './src/server/brief-route.js'
 import { writeDesk } from './src/server/desk-route.js'
+import { registerListingPaymentRoutes } from './src/server/listing-payment-route.js'
 import { registerRealtimeRoutes } from './src/server/realtime-routes.js'
 
 // Dynamic deploy reads this manifest to create the app's DO bindings.
@@ -115,6 +116,12 @@ export interface Env extends DOBindings<typeof __DO_MANIFEST__> {
   APP_OWNER_JWT: string
   /** xAI key for neighborhood briefs. Set with `npx deepspace secrets set XAI_API_KEY`. */
   XAI_API_KEY?: string
+  /** Public XRPL hosting fee. The destination is an address, never a seed. */
+  XRPL_NETWORK?: string
+  XRPL_DESTINATION?: string
+  XRPL_AMOUNT?: string
+  XRPL_CURRENCY?: string
+  XRPL_ISSUER?: string
   /**
    * Enables /api/debug/* only when exactly "true". The route still requires
    * an authenticated app owner/admin. deepspace dev/test set it locally.
@@ -155,6 +162,7 @@ app.post('/api/brief', async (c) => {
   const result = await writeBrief(c.env.XAI_API_KEY, body)
   return c.json(result.payload, result.status === 400 ? 400 : 200)
 })
+registerListingPaymentRoutes(app, resolveAuth)
 app.post('/api/agent', async (c) => {
   let body: unknown = null
   try {

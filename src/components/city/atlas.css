@@ -230,7 +230,7 @@
 
 .hood {
   cursor: pointer;
-  stroke: var(--color-foreground);
+  stroke: #1c1915;
   stroke-width: 0.6;
   /* Keep lines hairline-thin when the map zooms into a borough. */
   vector-effect: non-scaling-stroke;
@@ -238,7 +238,8 @@
 }
 
 .hood.is-selected {
-  stroke-width: 2.2;
+  stroke: var(--color-pressure);
+  stroke-width: 2.4;
 }
 
 .hood.is-outside {
@@ -694,7 +695,7 @@ ul.standing li.is-worse::before { background: var(--color-pressure); }
   cursor: pointer;
   display: grid;
   place-items: center;
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--color-foreground) 28%, transparent);
+  box-shadow: 0 8px 20px rgba(42, 38, 34, 0.16);
 }
 
 .desk-launcher svg {

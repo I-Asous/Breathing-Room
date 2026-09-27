@@ -29,6 +29,13 @@ run_worker_first = ["/api/*", "/ws/*", "/internal/*", "/v1/*", "/_deepspace/*", 
 [vars]
 DEEPSPACE_APP_ID = "app_01M3FHEPMKWGY76XWR44ZBZWPD"
 APP_NAME = "Breathing Room"
+# Hosting fee for a neighbor listing. Paste your XRPL address in XRPL_DESTINATION.
+# Leave it empty until you have one. Never put a wallet seed in this file.
+# testnet is the default so a demo does not take mainnet XRP. 1 XRP = 1,000,000 drops.
+XRPL_NETWORK = "testnet"
+XRPL_DESTINATION = ""
+XRPL_AMOUNT = "1"
+XRPL_CURRENCY = "XRP"
 
 [[migrations]]
 tag = "v1"

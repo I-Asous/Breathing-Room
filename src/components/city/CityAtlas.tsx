@@ -52,7 +52,7 @@ import './atlas.css'
 const BOROUGH_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.borough]))
 const NAME_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.name]))
 
-type MapView = 'combined' | 'air' | 'burden' | 'rent'
+type MapView = 'combined' | 'air' | 'burden' | 'rent' | 'pair'
 
 const VIEWS: { id: MapView; label: string; hint: string }[] = [
   {
@@ -75,10 +75,15 @@ const VIEWS: { id: MapView; label: string; hint: string }[] = [
     label: 'New leases',
     hint: 'Median asking rent for a new one-bedroom. Tenants already in place, including rent-stabilized ones, often pay less.',
   },
+  {
+    id: 'pair',
+    label: 'Ask × asthma',
+    hint: 'A 3×3 scale. Across is the new-lease ask, from lower to higher. Up is the child-asthma rate, 2017–2019. Dark is both high. This is not a toxic-burden score.',
+  },
 ]
 
 function hoodPaints(
-  readings: Map<string, { tone: number | null } | undefined>,
+  readings: Map<string, { tone: number | null; pair?: { rent: number; asthma: number } } | undefined>,
   borough: string | null,
   focusId: string | null,
   zoomed: boolean,
@@ -310,6 +315,11 @@ export default function CityAtlas() {
   const cityAskStart = CITY.citywide.asking1br[0]
   const cityRentChange = percentChange(cityAskStart?.median1br ?? null, cityAsk?.median1br ?? null)
 
+  useEffect(() => {
+    if (window.location.hash !== '#place') return
+    document.getElementById('place')?.scrollIntoView({ block: 'start' })
+  }, [params])
+
   return (
     <div className="atlas">
       <div className="atlas-find">
@@ -362,7 +372,7 @@ export default function CityAtlas() {
         </label>
       </div>
 
-      <div className="atlas-stage">
+      <div className="atlas-stage" id="place">
         <div className="atlas-map">
           <div className="layer-rail" role="group" aria-label="What the map colors">
             {VIEWS.map((item) => (
@@ -424,17 +434,31 @@ export default function CityAtlas() {
               pin={pin}
               traffic={null}
             />
-            <div className="legend">
-              <span className="text-xs text-muted-foreground">
-                {view === 'combined' ? 'Lighter burden' : (range?.low ?? 'Lower')}
-              </span>
-              {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
-                <i key={tone} className={`tone-${tone}`} aria-hidden="true" />
-              ))}
-              <span className="text-xs text-muted-foreground">
-                {view === 'combined' ? 'Heavier burden' : (range?.high ?? 'Higher')}
-              </span>
-            </div>
+            {view === 'pair' ? (
+              <div className="legend-pair" aria-hidden="true">
+                <span className="axis-y text-xs text-muted-foreground">Asthma, 2017–2019</span>
+                <div>
+                  <div className="grid">
+                    {['02', '12', '22', '01', '11', '21', '00', '10', '20'].map((cell) => (
+                      <i key={cell} className={`bi-${cell}`} />
+                    ))}
+                  </div>
+                  <span className="text-xs text-muted-foreground">New-lease ask →</span>
+                </div>
+              </div>
+            ) : (
+              <div className="legend">
+                <span className="text-xs text-muted-foreground">
+                  {view === 'combined' ? 'Lighter burden' : (range?.low ?? 'Lower')}
+                </span>
+                {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
+                  <i key={tone} className={`tone-${tone}`} aria-hidden="true" />
+                ))}
+                <span className="text-xs text-muted-foreground">
+                  {view === 'combined' ? 'Heavier burden' : (range?.high ?? 'Higher')}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -464,6 +488,13 @@ export default function CityAtlas() {
                 district={pin && pin.id === focus.id ? district : null}
                 paid={paidInput.trim() && Number.isFinite(paidValue) && paidValue > 0 ? paidValue : null}
               />
+              <p className="text-sm mt-3">
+                <Link to={`/home?n=${focus.id}`}>Open the {focus.name} forum</Link>
+                <span className="text-muted-foreground">
+                  {' '}
+                  Public posts, then replies. The round button asks the desk about this place.
+                </span>
+              </p>
               <section className="theme-block" aria-labelledby="score-figure">
                 <h3 id="score-figure">Combined burden</h3>
                 <div className="figure-row">
@@ -547,7 +578,7 @@ export default function CityAtlas() {
               <p className="text-sm">
                 {borough && area
                   ? `${borough} is ${area.count} neighborhoods, read as their median for air and new leases. Rent burden is the share of the borough's renter households.`
-                  : `Citywide, 2024 PM2.5 averages ${formatUg(cityPm)} µg/m³. ${formatShare(cityBurden)} of renter households pay 30% or more of income. New one-bedroom asks are ${formatPercent(cityRentChange)} since ${cityAskStart ? monthLabel(cityAskStart.month) : 'the start'}.`}
+                  : `Citywide, 2024 PM2.5 averages ${formatUg(cityPm)} µg/m³. ${formatShare(cityBurden)} of renter households pay 30% or more of income. New one-bedroom asks are ${formatPercent(cityRentChange)} since ${cityAskStart ? monthLabel(cityAskStart.month) : 'the start'}. The three do not rise and fall in the same neighborhoods.`}
               </p>
               {borough && area && (
                 <p className="text-sm mt-2">

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AirOutlookChart, EquityMeters, RentOutlookChart } from '@/components/city/OutlookCharts'
 import SiteHeader from '@/components/SiteHeader'
 import '@/components/city/atlas.css'
@@ -52,9 +52,13 @@ export default function PredictiveModeling() {
         <p className="text-xs uppercase tracking-widest text-muted-foreground">Predictive Modeling</p>
         <h2 className="display mt-1 text-4xl leading-none">What the newest point can still say</h2>
         <p className="mt-4 max-w-2xl text-base text-muted-foreground">
-          Each line uses only the series already on this atlas. Air is a straight line through the annual survey,
+          Same three series as the atlas, continued one step. Air is a straight line through the annual survey,
           2009–2024. Rent repeats the same calendar month from the one year of listings on record, and only where
-          both months have at least 20 one-bedroom listings. Housing equity is a single period, so it stays put.
+          both months have at least 20 one-bedroom listings. Housing equity is a single period, so it stays put.{' '}
+          <Link to={place ? `/?n=${place.id}&b=${place.borough}#place` : '/'} className="underline underline-offset-4">
+            Back to the neighborhood
+          </Link>
+          .
         </p>
 
         <label className="mt-6 block max-w-md text-sm">
