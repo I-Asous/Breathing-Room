@@ -12,7 +12,7 @@ export default function CleaningNotes() {
         How we cleaned this
       </h2>
       <p className="max-w-2xl text-muted-foreground mb-6">
-        Five public records, each messy in its own way. This is what went in, what came out, and why. The
+        Every public record here is messy in its own way. This is what went in, what came out, and why. The
         build scripts count every number here as they run.
       </p>
 

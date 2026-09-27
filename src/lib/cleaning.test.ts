@@ -17,7 +17,7 @@ describe('cleaning counts', () => {
 
   it('describes each record with a before and after', () => {
     const steps = cleaningSteps()
-    expect(steps).toHaveLength(5)
+    expect(steps).toHaveLength(6)
     for (const step of steps) {
       expect(step.from).toMatch(/\d/)
       expect(step.to).toMatch(/\d/)

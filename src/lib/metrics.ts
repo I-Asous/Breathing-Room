@@ -1,5 +1,6 @@
 import city from '../data/city.json'
 import households from '../data/households.json'
+import rentBurden from '../data/rent-burden.json'
 
 export type AirPoint = { period: string; value: number }
 export type ZoriPoint = { year: number; value: number }
@@ -73,7 +74,7 @@ export const AIR_YEARS = Array.from(
 
 export const RENT_MONTHS = CITY.citywide.asking1br.map((p) => p.month)
 
-export type Layer = 'air' | 'rent' | 'pair' | 'gap'
+export type Layer = 'air' | 'rent' | 'burden' | 'pair' | 'gap'
 
 export function airAt(series: AirPoint[], period: string): number | null {
   return series.find((p) => p.period === period)?.value ?? null
@@ -176,6 +177,13 @@ export function readingFor(
     }
   }
 
+  if (layer === 'burden') {
+    const share = burdenShare([neighborhood])
+    if (share == null) return { tone: null, label: 'No rent-burden estimate' }
+    const all = peers.map((n) => burdenShare([n])).filter((v): v is number => v != null)
+    return { tone: toneIndex(percentile(share, all)), label: `${formatShare(share)} of renters pay 30%+ of income` }
+  }
+
   if (layer === 'pair') {
     const rent = latestAsking(neighborhood, rentMonth)
     const asthma = last(neighborhood.asthmaChild)?.value
@@ -219,18 +227,49 @@ export function layerRange(
       ? peers.map((n) => airAt(n.pm25, airYear))
       : layer === 'rent'
         ? peers.map((n) => askingAt(n.asking1br, rentMonth)?.median1br ?? null)
-        : []
+        : layer === 'burden'
+          ? peers.map((n) => burdenShare([n]))
+          : []
   const found = values.filter((v): v is number => v != null)
   if (!found.length) return null
   const low = Math.min(...found)
   const high = Math.max(...found)
   return layer === 'air'
     ? { low: `${formatUg(low)} µg/m³`, high: `${formatUg(high)} µg/m³` }
-    : { low: formatRent(low), high: formatRent(high) }
+    : layer === 'burden'
+      ? { low: `${formatShare(low)} burdened`, high: `${formatShare(high)} burdened` }
+      : { low: formatRent(low), high: formatRent(high) }
 }
 
 function latestAsking(neighborhood: Neighborhood, month: string): number | null {
   return askingAt(neighborhood.asking1br, month)?.median1br ?? last(neighborhood.asking1br)?.median1br ?? null
+}
+
+type BurdenRow = { renters: number; burdened: number; severe: number }
+const BURDEN: Record<string, BurdenRow> = rentBurden.byUhf
+export const BURDEN_PERIOD = rentBurden.period
+export const BURDEN_CITY = rentBurden.city
+export const BURDEN_CHECK = rentBurden.check
+
+/**
+ * Share of renter households paying 30% or more of income on gross rent, in percent, summed over a
+ * set of neighborhoods (so a borough is its renters, not the median of its neighborhoods).
+ */
+export function burdenShare(rows: Neighborhood[], key: 'burdened' | 'severe' = 'burdened'): number | null {
+  let renters = 0
+  let count = 0
+  for (const n of rows) {
+    const row = BURDEN[n.id]
+    if (!row) continue
+    renters += row.renters
+    count += row[key]
+  }
+  return renters ? (100 * count) / renters : null
+}
+
+export function formatShare(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return `${Math.round(value)}%`
 }
 
 const HOUSEHOLDS: Record<string, number> = households.byUhf
@@ -296,6 +335,10 @@ export type BriefFacts = {
   zori_last_year: number | null
   deep_units: number
   deep_per_1k_households: number | null
+  rent_burden_pct: number | null
+  rent_burden_severe_pct: number | null
+  city_rent_burden_pct: number | null
+  rent_burden_period: string
   counted_units: number
 }
 
@@ -332,6 +375,10 @@ export function factsFor(neighborhood: Neighborhood): BriefFacts {
     zori_last_year: zoriEnd?.year ?? null,
     deep_units: neighborhood.housing.since2014eli,
     deep_per_1k_households: deepPer1k([neighborhood]),
+    rent_burden_pct: burdenShare([neighborhood]),
+    rent_burden_severe_pct: burdenShare([neighborhood], 'severe'),
+    city_rent_burden_pct: burdenShare(CITY.neighborhoods),
+    rent_burden_period: rentBurden.period,
     counted_units: neighborhood.housing.since2014counted,
   }
 }

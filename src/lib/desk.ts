@@ -4,6 +4,7 @@ import {
   factsFor,
   formatCount,
   formatPercent,
+  formatShare,
   formatUg,
   neighborhoodById,
   percentChange,
@@ -192,6 +193,12 @@ function rentLine(facts: BriefFacts, withZori: boolean): string[] {
           facts.city_asking_1br != null ? `, city median ${money(facts.city_asking_1br)}` : ''
         }.${thin ? ` Only ${formatCount(facts.asking_n ?? 0)} listings.` : ''} Not a sitting tenant's rent.`
       : 'No one-bedroom asking rent joined here.'
+  const burden =
+    facts.rent_burden_pct != null
+      ? `${formatShare(facts.rent_burden_pct)} of renters here pay 30% or more of income on rent${
+          facts.city_rent_burden_pct != null ? ` (city ${formatShare(facts.city_rent_burden_pct)})` : ''
+        }, ${facts.rent_burden_period}.`
+      : null
   const deep = `${formatCount(facts.deep_units)} deeply affordable units financed since 2014, not vacant listings.`
   const zori =
     withZori && facts.zori_last != null
@@ -199,7 +206,7 @@ function rentLine(facts: BriefFacts, withZori: boolean): string[] {
           facts.zori_2019 != null ? ` (${formatPercent(percentChange(facts.zori_2019, facts.zori_last))} since 2019)` : ''
         }, a different measure from asking rent.`
       : null
-  return [asking, deep, zori].filter((line): line is string => line != null)
+  return [asking, burden, deep, zori].filter((line): line is string => line != null)
 }
 
 function airLine(facts: BriefFacts, withNo2: boolean): string {

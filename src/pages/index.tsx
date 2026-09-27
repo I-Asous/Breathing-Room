@@ -37,7 +37,7 @@ export default function Landing() {
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
               Columbia DivHacks · Hack the City
             </p>
-            <p className="display text-lg leading-none">Breathing Room</p>
+            <h1 className="display text-lg leading-none">Breathing Room</h1>
           </div>
           <Link to="/home" className="text-sm underline underline-offset-4">
             Forums
@@ -45,19 +45,15 @@ export default function Landing() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-5 py-8 md:py-12">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
+      <main className="mx-auto max-w-6xl px-5 py-6 md:py-8">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
           New York, neighborhood by neighborhood
         </p>
-        <h1 className="text-5xl leading-[0.95] md:text-7xl max-w-3xl">Breathing Room</h1>
-        <p className="mt-5 max-w-xl text-base text-muted-foreground">
+        <p className="mb-6 max-w-2xl text-base text-muted-foreground">
           Forty-two neighborhoods. The air through 2024, asking rents for new one-bedroom leases through
-          August 2026, and where deeply affordable homes were actually built.
+          August 2026, and where deeply affordable homes were built.
         </p>
-
-        <div className="mt-10">
-          <CityAtlas />
-        </div>
+        <CityAtlas />
 
         <CleaningNotes />
       </main>
@@ -93,6 +89,15 @@ export default function Landing() {
                 American Community Survey 5-year, households by ZIP (B11001)
               </a>
               <span> — US Census Bureau, 2020–2024, summed into neighborhoods by NYC Health ZIP definition</span>
+            </li>
+            <li>
+              <a className="underline underline-offset-4" href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">
+                American Community Survey 5-year, gross rent as a share of income by ZIP (B25070)
+              </a>
+              <span> — US Census Bureau, 2020–2024, checked against </span>
+              <a className="underline underline-offset-4" href="https://a816-dohbesp.nyc.gov/IndicatorPublic/data-explorer/housing-stability/?id=2336">
+                NYC Health's rent-burdened households
+              </a>
             </li>
           </ul>
         </div>

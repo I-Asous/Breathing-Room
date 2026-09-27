@@ -4,3 +4,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
+
+# Keep the map workers executable if a host still sniffs them as a generic file.
+/maplibre/*.js
+  Content-Type: application/javascript

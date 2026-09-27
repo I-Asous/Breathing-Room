@@ -18,7 +18,7 @@ export type Measure = 'pm25' | 'no2' | 'asking'
 const REPORTS = 'https://a816-dohbesp.nyc.gov/IndicatorPublic/neighborhood-reports'
 
 /** Latest-month listings below this are too thin to call a rent rise. */
-const MIN_LISTINGS = 20
+export const MIN_LISTINGS = 20
 /** Percentage points a neighborhood must beat the citywide asking-rent change. */
 const RISE_MARGIN = 1
 
