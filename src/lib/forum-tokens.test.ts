@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LIKE, addTallies, tallyTokens } from './forum-tokens'
+import { LIKE, addTallies, coinFor, tallyTokens } from './forum-tokens'
 
 const messages = [
   { recordId: 'p1', authorId: 'ana' },
@@ -33,5 +33,20 @@ describe('tallyTokens', () => {
     const one = tallyTokens('ana', messages, [{ messageId: 'p1', userId: 'ben', emoji: LIKE }])
     expect(one.total).toBe(2)
     expect(addTallies(one, one)).toEqual({ posts: 2, replies: 2, likesReceived: 2, total: 5 })
+  })
+})
+
+describe('coinFor', () => {
+  it('gives bronze at 10, silver at 25, gold at 50', () => {
+    expect([0, 9, 10, 24, 25, 49, 50, 120].map(coinFor)).toEqual([
+      null,
+      null,
+      'bronze',
+      'bronze',
+      'silver',
+      'silver',
+      'gold',
+      'gold',
+    ])
   })
 })

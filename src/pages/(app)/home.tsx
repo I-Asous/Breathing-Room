@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AuthOverlay, useAuthProfileReady } from 'deepspace'
+import { AuthOverlay, useAuthProfileReady, useQuery } from 'deepspace'
 import NeighborhoodForum from '@/components/messaging/NeighborhoodForum'
-import { useForumTokens } from '@/components/messaging/hooks/useForumTokens'
-import { HOW_TOKENS_WORK, TOKEN_RATES, type TokenTally } from '@/lib/forum-tokens'
+import { recountAuthor, useForumTokens } from '@/components/messaging/hooks/useForumTokens'
+import { COIN_ART, COIN_LABEL, CoinBadge } from '@/components/messaging/CoinBadge'
+import { COIN_TIERS, HOW_TOKENS_WORK, TOKEN_RATES, type TokenTally } from '@/lib/forum-tokens'
 import { BOROUGHS, CITY, neighborhoodById, type Borough } from '@/lib/metrics'
 
 export default function HomePage() {
@@ -12,6 +13,11 @@ export default function HomePage() {
   const { isSignedIn } = useAuthProfileReady({ requireUser: true })
   const [showAuth, setShowAuth] = useState(false)
   const { tally, refresh } = useForumTokens(isSignedIn)
+  const standingRows = useQuery<{ userId: string; tokens: number }>('forum-standing', { limit: 1000 })
+  const standing = useMemo(
+    () => new Map(standingRows.records.map((row) => [row.data.userId, Number(row.data.tokens) || 0])),
+    [standingRows.records],
+  )
 
   function open(id: string) {
     const next = new URLSearchParams(params)
@@ -75,6 +81,8 @@ export default function HomePage() {
               }}
               onSignIn={() => setShowAuth(true)}
               onActivity={refresh}
+              standing={standing}
+              onLiked={recountAuthor}
               className="h-full"
             />
           ) : (
@@ -124,6 +132,7 @@ function TokenPill({
         {signedIn ? (
           <span className="text-sm font-medium" aria-live="polite">
             <span className="text-primary">◆</span> {tally ? tally.total : '–'} {tally?.total === 1 ? 'token' : 'tokens'}
+            {tally && <CoinBadge tokens={tally.total} className="ml-1.5" />}
           </span>
         ) : (
           <button type="button" className="text-sm hover:underline underline-offset-4" onClick={onSignIn}>
@@ -152,6 +161,22 @@ function TokenPill({
           <ul className="mt-2 space-y-1 text-muted-foreground">
             {HOW_TOKENS_WORK.map((line) => (
               <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <p className="mt-3 font-medium">Coins by your name</p>
+          <ul className="mt-2 space-y-1 text-muted-foreground">
+            {[...COIN_TIERS].reverse().map(({ tier, min }) => (
+              <li key={tier} className="flex items-center gap-2">
+                <img
+                  src={COIN_ART[tier]}
+                  alt=""
+                  width={14}
+                  height={14}
+                  className="h-3.5 w-3.5"
+                  style={{ imageRendering: 'pixelated' }}
+                />
+                {COIN_LABEL[tier]} at {min} tokens
+              </li>
             ))}
           </ul>
           {signedIn && tally && (

@@ -39,3 +39,20 @@ export function useForumTokens(signedIn: boolean) {
 
   return { tally, refresh }
 }
+
+/** Ask the worker to recount an author after a like lands, so their public coin keeps up. */
+export function recountAuthor(authorId: string): void {
+  setTimeout(async () => {
+    try {
+      const token = await getAuthToken()
+      if (!token) return
+      await fetch('/api/forum/standing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: authorId }),
+      })
+    } catch {
+      // The author's next visit recounts them anyway.
+    }
+  }, 1200)
+}

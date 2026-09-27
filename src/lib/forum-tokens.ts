@@ -13,6 +13,19 @@ export const HOW_TOKENS_WORK = [
   `1 token for every ${TOKEN_RATES.likesPerToken} likes from neighbors`,
 ]
 
+export type CoinTier = 'gold' | 'silver' | 'bronze'
+
+/** Public badges, highest first. */
+export const COIN_TIERS: { tier: CoinTier; min: number }[] = [
+  { tier: 'gold', min: 50 },
+  { tier: 'silver', min: 25 },
+  { tier: 'bronze', min: 10 },
+]
+
+export function coinFor(tokens: number): CoinTier | null {
+  return COIN_TIERS.find((entry) => tokens >= entry.min)?.tier ?? null
+}
+
 /** The reaction emoji the forum uses as a like. */
 export const LIKE = '👍'
 

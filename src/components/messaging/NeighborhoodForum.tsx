@@ -16,6 +16,8 @@ export default function NeighborhoodForum({
   onOpenPost,
   onSignIn,
   onActivity,
+  standing,
+  onLiked,
   className,
   schemas = messagingSchemas,
 }: {
@@ -25,6 +27,8 @@ export default function NeighborhoodForum({
   onOpenPost: (id: string | null) => void
   onSignIn: () => void
   onActivity?: () => void
+  standing?: ReadonlyMap<string, number>
+  onLiked?: (authorId: string) => void
   className?: string
   schemas?: CollectionSchema[]
 }) {
@@ -66,7 +70,15 @@ export default function NeighborhoodForum({
   return (
     <div className={`flex h-full min-h-0 flex-col ${className ?? ''}`}>
       <RecordScope roomId={`chat:${channelId}`} schemas={schemas}>
-        <ForumFeed channelId={channelId} postId={postId} onOpenPost={onOpenPost} onSignIn={onSignIn} onActivity={onActivity} />
+        <ForumFeed
+          channelId={channelId}
+          postId={postId}
+          onOpenPost={onOpenPost}
+          onSignIn={onSignIn}
+          onActivity={onActivity}
+          standing={standing}
+          onLiked={onLiked}
+        />
       </RecordScope>
     </div>
   )
