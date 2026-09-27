@@ -14,6 +14,10 @@
   .atlas-find {
     grid-template-columns: minmax(0, 1.4fr) minmax(14rem, 0.8fr);
   }
+
+  .atlas-find.dossier-find {
+    grid-template-columns: 1fr;
+  }
 }
 
 .atlas-stage {
@@ -158,6 +162,10 @@
   border: 1px solid var(--color-border);
   padding: 0;
   overflow: hidden;
+}
+
+.under-map {
+  margin-top: 0.85rem;
 }
 
 .street-map {
@@ -497,6 +505,14 @@ ul.standing li.is-worse::before { background: var(--color-pressure); }
 
 .theme-block + .theme-block {
   margin-top: 0.35rem;
+}
+
+.budget-block {
+  margin-top: 1.75rem;
+}
+
+.budget-block h3 {
+  font-size: 0.97rem;
 }
 
 .theme-block .figure-row {
