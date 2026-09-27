@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import RentTrend from '@/components/city/RentTrend'
 import StreetMap, { hoodColor, type HoodPaint, type MapPin } from '@/components/city/StreetMap'
@@ -8,71 +8,93 @@ import {
   CITY,
   RENT_MONTHS,
   airAt,
-  askingAt,
   boroughSummary,
-  factsFor,
-  formatCount,
+  burdenShare,
+  deepPer1k,
   formatPercent,
   formatRate,
-  formatShare,
-  burdenShare,
-  BURDEN_PERIOD,
   formatRent,
-  deepPer1k,
-  householdsIn,
-  HOUSEHOLDS_PERIOD,
+  formatShare,
   formatUg,
   isBorough,
   last,
   layerRange,
+  nearestPmMonitors,
   neighborhoodById,
   percentChange,
+  percentile,
   readingFor,
+  toneIndex,
   type Borough,
   type Layer,
   type Neighborhood,
-  type Reading,
 } from '@/lib/metrics'
-import { compareNeighborhoods } from '@/lib/compare'
-import { rentCapForIncome } from '@/lib/actions'
+import { EPA_ANNUAL_PM25, rentCapForIncome, rentGuidelineGap, signingHint } from '@/lib/actions'
 import ActionPanel from '@/components/city/ActionPanel'
+import DeskDock from '@/components/city/DeskDock'
 import {
-  measureRange,
-  monthLabel,
-  neighborhoodsForBudget,
-  readingsFor,
-  rentPressure,
-} from '@/lib/overlay'
+  DEFAULT_WEIGHTS,
+  SCORE_LIMITS,
+  SCORE_MEANS,
+  burdenRows,
+  carriesAllThree,
+  readPlace,
+  rentAgainstAsk,
+  togetherLine,
+  weightPercents,
+  type BurdenWeights,
+} from '@/lib/burden-index'
 import { councilDistrictAt } from '@/lib/council'
-import { interpretDesk, type CouncilPin } from '@/lib/desk'
-import type { NextStep } from '@/lib/next-steps'
-import { reportSlug } from '@/lib/next-steps'
+import { monthLabel, neighborhoodsForBudget } from '@/lib/overlay'
 import { findNeighborhood } from '@/lib/place-search'
-import { standingFor } from '@/lib/standing'
-import { formatClock, hourAir, trafficMarkCount, WEEKDAY_CRZ_ENTRIES } from '@/lib/traffic-day'
 import './atlas.css'
 
 const BOROUGH_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.borough]))
 const NAME_OF = new Map(CITY.neighborhoods.map((n) => [n.id, n.name]))
-const LAYERS: { id: Layer; label: string; hint: string }[] = [
-  { id: 'air', label: 'Air', hint: 'Annual mean PM2.5 from the community air survey.' },
+
+type MapView = 'combined' | 'air' | 'burden' | 'rent'
+
+const VIEWS: { id: MapView; label: string; hint: string }[] = [
   {
-    id: 'rent',
-    label: 'Rent',
-    hint: 'Median asking rent for new one-bedroom leases, from listings. Tenants already in place, including rent-stabilized ones, often pay less.',
+    id: 'combined',
+    label: 'Combined burden',
+    hint: 'Darker means a heavier mix of 2024 PM2.5, rent burden, and rising new-lease asks. The weights sit beside the score.',
+  },
+  {
+    id: 'air',
+    label: 'Air',
+    hint: 'Annual PM2.5. The survey runs through 2024, the year before congestion pricing.',
   },
   {
     id: 'burden',
     label: 'Rent burden',
-    hint: 'Share of renter households paying 30% or more of income on rent and utilities, 2020–2024. Summed from Census ZIP data the same way NYC Health computes it.',
+    hint: 'Share of renter households paying 30% or more of income on rent and utilities, 2020–2024.',
   },
   {
-    id: 'pair',
-    label: 'Rent × asthma',
-    hint: 'Asking rent for new one-bedroom leases against child asthma ED visits tied to PM2.5 (2017–19), each split into thirds of the 42 neighborhoods. Brick is rent, slate is asthma, dark ink is both.',
+    id: 'rent',
+    label: 'New leases',
+    hint: 'Median asking rent for a new one-bedroom. Tenants already in place, including rent-stabilized ones, often pay less.',
   },
-  { id: 'gap', label: 'Gap', hint: 'Asking rent for new leases beside deeply affordable units per 1,000 households, started since 2014.' },
 ]
+
+function hoodPaints(
+  readings: Map<string, { tone: number | null } | undefined>,
+  borough: string | null,
+  focusId: string | null,
+  zoomed: boolean,
+): HoodPaint[] {
+  return CITY.neighborhoods.map((neighborhood) => {
+    const reading = readings.get(neighborhood.id)
+    const outside = borough != null && neighborhood.borough !== borough
+    return {
+      id: neighborhood.id,
+      color: hoodColor(reading),
+      opacity: outside ? 0.14 : zoomed ? 0.46 : 0.55,
+      line: outside ? 0.22 : focusId === neighborhood.id ? 1 : 0.72,
+      selected: focusId === neighborhood.id ? 1 : 0,
+    }
+  })
+}
 
 function Spark({ values }: { values: number[] }) {
   if (values.length < 2) return null
@@ -82,96 +104,79 @@ function Spark({ values }: { values: number[] }) {
   const d = values
     .map((value, index) => {
       const x = (index / (values.length - 1)) * 240
-      const y = 48 - ((value - min) / span) * 40
+      const y = 36 - ((value - min) / span) * 28
       return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`
     })
     .join(' ')
   return (
-    <svg className="spark" viewBox="0 0 240 52" role="img" aria-label="Trend">
+    <svg className="spark" viewBox="0 0 240 40" role="img" aria-label="PM2.5 from the first survey year through 2024">
       <path d={d} />
     </svg>
   )
 }
 
-function hoodPaints(
-  readings: Map<string, Reading>,
-  borough: string | null,
-  focusId: string | null,
-  zoomed: boolean,
-  haze: number,
-): HoodPaint[] {
-  return CITY.neighborhoods.map((neighborhood) => {
-    const reading = readings.get(neighborhood.id)
-    const outside = borough != null && neighborhood.borough !== borough
-    const inView = !outside && zoomed
-    return {
-      id: neighborhood.id,
-      color: hoodColor(reading),
-      opacity: outside ? 0.14 : inView ? 0.46 + haze : 0.55,
-      line: outside ? 0.22 : focusId === neighborhood.id ? 1 : 0.72,
-      selected: focusId === neighborhood.id ? 1 : 0,
-    }
-  })
+function Weights({
+  weights,
+  onChange,
+}: {
+  weights: BurdenWeights
+  onChange: (next: BurdenWeights) => void
+}) {
+  const split = weightPercents(weights)
+  const rows: { key: keyof BurdenWeights; label: string }[] = [
+    { key: 'air', label: 'Air' },
+    { key: 'burden', label: 'Rent burden' },
+    { key: 'rent', label: 'Rent rise' },
+  ]
+  return (
+    <div>
+      {rows.map((row) => (
+        <label key={row.key} className="weight-row">
+          <span>{row.label}</span>
+          <input
+            type="range"
+            min={0}
+            max={4}
+            step={1}
+            value={weights[row.key]}
+            aria-valuetext={split ? `${split[row.key]} percent` : 'unused'}
+            onChange={(event) => onChange({ ...weights, [row.key]: Number(event.target.value) })}
+          />
+          <span>{split ? `${split[row.key]}%` : '—'}</span>
+        </label>
+      ))}
+    </div>
+  )
 }
 
-function councilFor(
-  pin: MapPin | null,
-  neighborhoodId: string | null,
-  district: number | null,
-): CouncilPin | null {
-  if (!pin || district == null || !neighborhoodId || pin.id !== neighborhoodId) return null
-  return { district, neighborhoodId: pin.id }
-}
-
-function boroughRows() {
-  return BOROUGHS.map((borough) => {
-    const summary = boroughSummary(borough)
-    return {
-      borough,
-      pm: airAt(summary.pm25, '2024'),
-      rent: last(summary.asking1br)?.median1br ?? null,
-      deep: summary.deep,
-      deepPer1k: summary.deepPer1k,
-      burden: burdenShare(CITY.neighborhoods.filter((n) => n.borough === borough)),
-      count: summary.count,
-    }
-  })
+function monitorSentence(lon: number, lat: number): string | null {
+  const near = nearestPmMonitors(lon, lat)
+  if (!near) return null
+  const nearest = `${near.nearest.name}, ${near.nearest.miles.toFixed(1)} miles away, annual mean ${formatUg(near.nearest.value)} µg/m³ in ${near.nearest.year}`
+  if (near.within === 0) {
+    return `No EPA PM2.5 monitor is within ${near.radiusMiles} miles of this address. The nearest is ${nearest}. The neighborhood color is the survey, not a monitor on this block. NYC has ${near.citywide} of these monitors.`
+  }
+  const count = near.within === 1 ? 'One EPA PM2.5 monitor is' : `${near.within} EPA PM2.5 monitors are`
+  return `${count} within ${near.radiusMiles} miles of this address. The nearest is ${nearest}. That reading is the monitor, not the neighborhood mean above. NYC has ${near.citywide} of these monitors.`
 }
 
 export default function CityAtlas() {
   const [params, setParams] = useSearchParams()
-  const [layer, setLayer] = useState<Layer>('air')
-  const [view, setView] = useState<'single' | 'split' | 'pressure'>('single')
-  const [splitAir, setSplitAir] = useState<'pm25' | 'no2'>('pm25')
+  const [view, setView] = useState<MapView>('combined')
+  const [weights, setWeights] = useState<BurdenWeights>(DEFAULT_WEIGHTS)
   const [budgetInput, setBudgetInput] = useState('')
   const [incomeInput, setIncomeInput] = useState('')
-  const [showMonitors, setShowMonitors] = useState(true)
-  const [activeMonitorId, setActiveMonitorId] = useState<string | null>(null)
+  const [paidInput, setPaidInput] = useState('')
   const [airYear, setAirYear] = useState('2024')
   const [rentMonth, setRentMonth] = useState(RENT_MONTHS[RENT_MONTHS.length - 1] ?? '2026-08')
-  const [question, setQuestion] = useState('')
-  const [brief, setBrief] = useState<{
-    source: string
-    spoken: string
-    steps: NextStep[]
-    notice?: string
-  } | null>(null)
-  const [councilDistrict, setCouncilDistrict] = useState<number | null>(null)
-  const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [briefError, setBriefError] = useState('')
   const [placeQuery, setPlaceQuery] = useState('')
   const [placeStatus, setPlaceStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [placeNote, setPlaceNote] = useState('')
-  const [hour, setHour] = useState(8)
-  const [playing, setPlaying] = useState(true)
   const [pin, setPin] = useState<MapPin | null>(null)
-  const [deskOpen, setDeskOpen] = useState(false)
-  const deskField = useRef<HTMLTextAreaElement>(null)
+  const [district, setDistrict] = useState<number | null>(null)
 
-  const selected = neighborhoodById(params.get('n'))
-  const focus: Neighborhood | null = selected
+  const focus: Neighborhood | null = neighborhoodById(params.get('n'))
   const boroughParam = params.get('b')
-  // A chosen neighborhood always decides the borough, so a stale `b` cannot disagree with it.
   const borough: Borough | null = focus
     ? isBorough(focus.borough)
       ? focus.borough
@@ -180,68 +185,65 @@ export default function CityAtlas() {
       ? boroughParam
       : null
   const area = useMemo(() => (borough ? boroughSummary(borough) : null), [borough])
-  const scope = focus ?? area ?? CITY.citywide
   const zoomed = borough != null
-  useEffect(() => {
-    if (!zoomed || !playing) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const timer = window.setInterval(() => setHour((current) => (current + 1) % 24), 900)
-    return () => window.clearInterval(timer)
-  }, [zoomed, playing])
+  const choices = borough ? CITY.neighborhoods.filter((n) => n.borough === borough) : CITY.neighborhoods
+  const rows = useMemo(() => burdenRows(weights), [weights])
+  const focusRow = focus ? (rows.find((row) => row.id === focus.id) ?? null) : null
+  const placeRead = focus && focusRow ? readPlace(focus, focusRow) : null
+  const together = useMemo(() => togetherLine(burdenRows()), [])
 
   useEffect(() => {
     if (!pin) {
-      setCouncilDistrict(null)
+      setDistrict(null)
       return
     }
     let cancel = false
-    void councilDistrictAt(pin.lon, pin.lat).then((district) => {
-      if (!cancel) setCouncilDistrict(district)
+    void councilDistrictAt(pin.lon, pin.lat).then((value) => {
+      if (!cancel) setDistrict(value)
     })
     return () => {
       cancel = true
     }
   }, [pin])
 
-  useEffect(() => {
-    if (!deskOpen) return
-    deskField.current?.focus()
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDeskOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [deskOpen])
-
-  const choices = borough
-    ? CITY.neighborhoods.filter((n) => n.borough === borough)
-    : CITY.neighborhoods
-
+  const layer: Layer = view === 'combined' ? 'air' : view
   const readings = useMemo(() => {
     const map = new Map<string, ReturnType<typeof readingFor>>()
+    if (view === 'combined') return map
     for (const neighborhood of CITY.neighborhoods) {
       map.set(neighborhood.id, readingFor(neighborhood, layer, airYear, rentMonth, CITY.neighborhoods))
     }
     return map
-  }, [layer, airYear, rentMonth])
+  }, [view, layer, airYear, rentMonth])
 
   const range = useMemo(
-    () => layerRange(layer, airYear, rentMonth, CITY.neighborhoods),
-    [layer, airYear, rentMonth],
+    () => (view === 'combined' ? null : layerRange(layer, airYear, rentMonth, CITY.neighborhoods)),
+    [view, layer, airYear, rentMonth],
   )
 
-  const boroughs = useMemo(() => boroughRows(), [])
+  const paints = useMemo<HoodPaint[]>(() => {
+    if (view !== 'combined') return hoodPaints(readings, borough, focus?.id ?? null, zoomed)
+    const present = rows.map((row) => row.score).filter((score): score is number => score != null)
+    const scored = new Map(rows.map((row) => [row.id, row.score]))
+    const combined = new Map<string, { tone: number | null }>()
+    for (const neighborhood of CITY.neighborhoods) {
+      const score = scored.get(neighborhood.id) ?? null
+      combined.set(neighborhood.id, {
+        tone: score == null ? null : toneIndex(percentile(score, present)),
+      })
+    }
+    return hoodPaints(combined, borough, focus?.id ?? null, zoomed)
+  }, [view, readings, rows, borough, focus, zoomed])
 
   function choose(id: string) {
     const next = new URLSearchParams(params)
     next.set('n', id)
     const home = BOROUGH_OF.get(id)
     if (home) next.set('b', home)
-    if (next.get('c') === id) next.delete('c')
+    next.delete('c')
     setParams(next, { replace: true })
     setPin(null)
-    setBrief(null)
-    setBriefStatus('idle')
+    setPaidInput('')
   }
 
   async function findPlace() {
@@ -257,15 +259,14 @@ export default function CityAtlas() {
     next.set('n', match.id)
     const home = BOROUGH_OF.get(match.id)
     if (home) next.set('b', home)
-    if (next.get('c') === match.id) next.delete('c')
+    next.delete('c')
     setParams(next, { replace: true })
     setPin(
       match.lon != null && match.lat != null
         ? { id: match.id, lon: match.lon, lat: match.lat, label: match.matched }
         : null,
     )
-    setBrief(null)
-    setBriefStatus('idle')
+    setPaidInput('')
     setPlaceStatus('idle')
     setPlaceNote(`${match.matched} is in ${NAME_OF.get(match.id)}, ${BOROUGH_OF.get(match.id)}.`)
   }
@@ -278,192 +279,36 @@ export default function CityAtlas() {
     else next.delete('b')
     setParams(next, { replace: true })
     setPin(null)
-    setBrief(null)
-    setBriefStatus('idle')
+    setPaidInput('')
   }
 
-  async function askDesk() {
-    const asked = question.trim()
-    if (!asked && !focus) return
-    setBriefStatus('loading')
-    setBriefError('')
-    const priorId = focus?.id ?? null
-    try {
-      const response = await fetch('/api/agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: asked || 'Brief this neighborhood.',
-          priorId,
-          lon: pin && pin.id === priorId ? pin.lon : undefined,
-          lat: pin && pin.id === priorId ? pin.lat : undefined,
-        }),
-      })
-      if (!response.ok) throw new Error('The desk did not answer.')
-      const payload = (await response.json()) as {
-        source?: string
-        text?: string
-        spoken?: string
-        steps?: NextStep[]
-        notice?: string
-        neighborhoodId?: string | null
-      }
-      const spoken = payload.spoken || payload.text
-      if (!spoken) throw new Error('The desk came back empty.')
-      if (payload.neighborhoodId && payload.neighborhoodId !== priorId) {
-        const next = new URLSearchParams(params)
-        next.set('n', payload.neighborhoodId)
-        setParams(next, { replace: true })
-      }
-      setBrief({
-        source: payload.source === 'grok' ? 'Grok' : 'Computed from the open data',
-        spoken,
-        steps: Array.isArray(payload.steps) ? payload.steps : [],
-        notice: payload.notice,
-      })
-      setBriefStatus('idle')
-    } catch {
-      const local = interpretDesk(
-        asked || 'Brief this neighborhood.',
-        priorId,
-        window.location.origin,
-        councilFor(pin, priorId, councilDistrict),
-      )
-      if (local.neighborhoodId && local.neighborhoodId !== priorId) {
-        const next = new URLSearchParams(params)
-        next.set('n', local.neighborhoodId)
-        setParams(next, { replace: true })
-      }
-      setBrief({
-        source: 'From the neighborhood record',
-        spoken: local.spoken,
-        steps: local.steps,
-      })
-      setBriefError('The desk could not be reached, so this reply uses the numbers already on the map.')
-      setBriefStatus('error')
-    }
-  }
-
-  const pmNow = airAt(scope.pm25, '2024')
-  const pmThen = airAt(scope.pm25, '2009')
-  const no2Now = airAt(scope.no2, '2024')
-  const cityNo2 = airAt(CITY.citywide.no2, '2024')
-  const day = hourAir(no2Now, pmNow, hour)
-  const markCount = trafficMarkCount(day.relative, no2Now, cityNo2)
-  const scopeIds = useMemo(
-    () =>
-      focus ? [focus.id] : borough ? CITY.neighborhoods.filter((n) => n.borough === borough).map((n) => n.id) : [],
-    [focus, borough],
-  )
-  const haze = Math.min(0.16, Math.max(0, (day.relative - 0.5) * 0.16))
-  const paints = useMemo<HoodPaint[]>(
-    () => hoodPaints(readings, borough, focus?.id ?? null, zoomed, haze),
-    [readings, borough, focus, zoomed, haze],
-  )
-  const pressure = useMemo(() => rentPressure(), [])
-  const pressureReadings = useMemo(() => {
-    const ids = new Set(pressure.map((place) => place.id))
-    const map = new Map<string, Reading>()
-    for (const neighborhood of CITY.neighborhoods) {
-      const hit = ids.has(neighborhood.id)
-      map.set(neighborhood.id, {
-        tone: hit ? 6 : 0,
-        label: hit ? 'Asks rose, air still high' : 'Outside this set',
-      })
-    }
-    return map
-  }, [pressure])
-  const pressurePaints = useMemo(
-    () => hoodPaints(pressureReadings, borough, focus?.id ?? null, zoomed, 0),
-    [pressureReadings, borough, focus, zoomed],
-  )
-  const rentReadings = useMemo(() => readingsFor('asking', rentMonth), [rentMonth])
-  const splitAirReadings = useMemo(() => readingsFor(splitAir, airYear), [splitAir, airYear])
-  const rentPaints = useMemo(
-    () => hoodPaints(rentReadings, borough, focus?.id ?? null, zoomed, 0),
-    [rentReadings, borough, focus, zoomed],
-  )
-  const airPaints = useMemo(
-    () => hoodPaints(splitAirReadings, borough, focus?.id ?? null, zoomed, 0),
-    [splitAirReadings, borough, focus, zoomed],
-  )
-  const rentLegend = useMemo(() => measureRange('asking', rentMonth), [rentMonth])
-  const airLegend = useMemo(() => measureRange(splitAir, airYear), [splitAir, airYear])
   const incomeValue = Number(incomeInput)
-  const incomeCap =
-    incomeInput.trim() && Number.isFinite(incomeValue) ? rentCapForIncome(incomeValue) : null
+  const incomeCap = incomeInput.trim() && Number.isFinite(incomeValue) ? rentCapForIncome(incomeValue) : null
   const budgetValue = incomeCap ?? Number(budgetInput)
   const bracket =
     (incomeCap != null || budgetInput.trim()) && Number.isFinite(budgetValue)
       ? neighborhoodsForBudget(budgetValue)
       : null
-  const standing = focus ? standingFor(focus) : []
-  const monitors = useMemo(
+  const paidValue = Number(paidInput)
+  const paidNote =
+    focusRow?.ask != null && paidInput.trim() && Number.isFinite(paidValue) && paidValue > 0
+      ? rentAgainstAsk(paidValue, focusRow.ask)
+      : null
+  const gap = focus ? rentGuidelineGap(focus) : null
+  const season = focus ? signingHint(focus) : null
+  const monitors = pin && focus && pin.id === focus.id ? monitorSentence(pin.lon, pin.lat) : null
+  const activeHint = VIEWS.find((item) => item.id === view)?.hint
+  const scopeIds = useMemo(
     () =>
-      CITY.airMonitors.map((monitor) => ({
-        id: monitor.id,
-        lon: monitor.lon,
-        lat: monitor.lat,
-        title: monitor.name,
-        borough: monitor.borough,
-        pm25: monitor.pm25,
-        no2: monitor.no2,
-      })),
-    [],
+      focus ? [focus.id] : borough ? CITY.neighborhoods.filter((n) => n.borough === borough).map((n) => n.id) : [],
+    [focus, borough],
   )
-  const traffic = zoomed ? { count: markCount, hour, playing, relative: day.relative } : null
-  const maxEntries = Math.max(...WEEKDAY_CRZ_ENTRIES)
-  const ask = last(scope.asking1br)
-  const askStart = scope.asking1br[0]
-  const zoriEnd = last(scope.zori)
-  const zori2019 = scope.zori.find((p) => p.year === 2019)?.value
-  const asthma = last(scope.asthmaChild)
-  const deepRows = focus
-    ? [focus]
-    : borough
-      ? CITY.neighborhoods.filter((n) => n.borough === borough)
-      : CITY.neighborhoods
-  const deep = deepRows.reduce((sum, n) => sum + n.housing.since2014eli, 0)
-  const deepRate = deepPer1k(deepRows)
-  const deepHouseholds = householdsIn(deepRows)
-  const burden = burdenShare(deepRows)
-  const burdenSevere = burdenShare(deepRows, 'severe')
+
+  const cityPm = airAt(CITY.citywide.pm25, '2024')
   const cityBurden = burdenShare(CITY.neighborhoods)
-  const pmChange = percentChange(pmThen, pmNow)
-  const rentChange = percentChange(zori2019 ?? null, zoriEnd?.value ?? null)
-  const sparkValues =
-    layer === 'air'
-      ? scope.pm25.map((p) => p.value)
-      : layer === 'rent'
-        ? scope.asking1br.map((p) => p.median1br)
-        : scope.zori.map((p) => p.value)
-
-  const activeHint =
-    view === 'split'
-      ? 'Asking rent for new one-bedroom leases beside annual PM2.5 or NO2. The color is the neighborhood. ZIP listings are placed by their centroid, not drawn as blocks.'
-      : view === 'pressure'
-        ? 'Brick marks neighborhoods where new-lease asks rose at least one percentage point faster than the city, and 2024 PM2.5 or NO2 is still above the city mean.'
-        : LAYERS.find((item) => item.id === layer)?.hint
-  const councilPin = councilFor(pin, focus?.id ?? null, councilDistrict)
-  const localDesk = focus ? interpretDesk(focus.name, null, '', councilPin) : null
-  const speech = brief?.spoken ?? localDesk?.spoken ?? ''
-  const steps = brief?.steps.length ? brief.steps : (localDesk?.steps ?? [])
-  const deskSource = brief?.source ?? (focus ? 'From the neighborhood record' : '')
-  const other = neighborhoodById(params.get('c'))
-  const compared = focus && other && other.id !== focus.id ? other : null
-  const comparison = focus && compared ? compareNeighborhoods(focus, compared) : null
-
-  function showPressure(id: string) {
-    setView('pressure')
-    choose(id)
-  }
-
-  function compareWith(id: string) {
-    const next = new URLSearchParams(params)
-    if (id) next.set('c', id)
-    else next.delete('c')
-    setParams(next, { replace: true })
-  }
+  const cityAsk = last(CITY.citywide.asking1br)
+  const cityAskStart = CITY.citywide.asking1br[0]
+  const cityRentChange = percentChange(cityAskStart?.median1br ?? null, cityAsk?.median1br ?? null)
 
   return (
     <div className="atlas">
@@ -477,7 +322,7 @@ export default function CityAtlas() {
           }}
         >
           <label htmlFor="place-query" className="text-sm text-muted-foreground">
-            Find your block — a street address or ZIP
+            Address or ZIP
           </label>
           <div className="place-search-row">
             <input
@@ -516,67 +361,35 @@ export default function CityAtlas() {
           </select>
         </label>
       </div>
+
       <div className="atlas-stage">
         <div className="atlas-map">
-        <div className="layer-rail" role="group" aria-label="Map layer">
-          {LAYERS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-pressed={view === 'single' && layer === item.id}
-              onClick={() => {
-                setLayer(item.id)
-                setView('single')
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-          <button type="button" aria-pressed={view === 'split'} onClick={() => setView('split')}>
-            Split
-          </button>
-          <button type="button" aria-pressed={view === 'pressure'} onClick={() => setView('pressure')}>
-            Rising rent
-          </button>
-        </div>
-        <p className="text-sm text-muted-foreground mb-2">{activeHint}</p>
-        <div className="layer-rail borough-rail" role="group" aria-label="Borough">
-          <button type="button" aria-pressed={borough == null} onClick={() => chooseBorough(null)}>
-            All five
-          </button>
-          {BOROUGHS.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={borough === name}
-              onClick={() => chooseBorough(name)}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="monitor-toggle"
-          aria-pressed={showMonitors}
-          onClick={() => setShowMonitors((value) => !value)}
-        >
-          {showMonitors ? 'Hide' : 'Show'} EPA air monitors, 2025–26
-        </button>
-        {view === 'split' && (
-          <>
-            <div className="layer-rail" role="group" aria-label="Air pollutant">
-              <button type="button" aria-pressed={splitAir === 'pm25'} onClick={() => setSplitAir('pm25')}>
-                PM2.5
+          <div className="layer-rail" role="group" aria-label="What the map colors">
+            {VIEWS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={view === item.id}
+                onClick={() => setView(item.id)}
+              >
+                {item.label}
               </button>
-              <button type="button" aria-pressed={splitAir === 'no2'} onClick={() => setSplitAir('no2')}>
-                NO2
+            ))}
+          </div>
+          <p className="text-sm text-muted-foreground mb-2">{activeHint}</p>
+          <div className="layer-rail borough-rail" role="group" aria-label="Borough">
+            <button type="button" aria-pressed={borough == null} onClick={() => chooseBorough(null)}>
+              All five
+            </button>
+            {BOROUGHS.map((name) => (
+              <button key={name} type="button" aria-pressed={borough === name} onClick={() => chooseBorough(name)}>
+                {name}
               </button>
-            </div>
+            ))}
+          </div>
+          {view === 'air' && (
             <label className="scrubber block text-sm">
-              <span className="text-muted-foreground">
-                {splitAir === 'pm25' ? 'PM2.5' : 'NO2'} year {airYear}
-              </span>
+              <span className="text-muted-foreground">PM2.5 year {airYear}</span>
               <input
                 type="range"
                 min={0}
@@ -585,8 +398,10 @@ export default function CityAtlas() {
                 onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
               />
             </label>
+          )}
+          {view === 'rent' && (
             <label className="scrubber block text-sm">
-              <span className="text-muted-foreground">Listings {rentMonth}</span>
+              <span className="text-muted-foreground">Listings {monthLabel(rentMonth)}</span>
               <input
                 type="range"
                 min={0}
@@ -595,358 +410,196 @@ export default function CityAtlas() {
                 onChange={(event) => setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)}
               />
             </label>
-            <p className="text-xs text-muted-foreground mt-2">
-              Both panes are the 42 neighborhoods. A ZIP’s listings are counted in the neighborhood that holds
-              their centroid. PM2.5 and NO2 are annual means through 2024, the year before the toll.
-            </p>
-          </>
-        )}
-        {view === 'single' && layer === 'air' && (
-          <label className="scrubber block text-sm">
-            <span className="text-muted-foreground">PM2.5 year {airYear}</span>
-            <input
-              type="range"
-              min={0}
-              max={AIR_YEARS.length - 1}
-              value={Math.max(0, AIR_YEARS.indexOf(airYear))}
-              onChange={(event) => setAirYear(AIR_YEARS[Number(event.target.value)] ?? '2024')}
-            />
-          </label>
-        )}
-        {view === 'single' && layer === 'rent' && (
-          <label className="scrubber block text-sm">
-            <span className="text-muted-foreground">Listings {rentMonth}</span>
-            <input
-              type="range"
-              min={0}
-              max={RENT_MONTHS.length - 1}
-              value={Math.max(0, RENT_MONTHS.indexOf(rentMonth))}
-              onChange={(event) =>
-                setRentMonth(RENT_MONTHS[Number(event.target.value)] ?? rentMonth)
-              }
-            />
-          </label>
-        )}
-        {view === 'split' ? (
-          <div className="map-split">
-            <div className="map-pane">
-              <p className="pane-title">Asking rent · {monthLabel(rentMonth)}</p>
-              <StreetMap
-                paints={rentPaints}
-                focusId={focus?.id ?? null}
-                scopeIds={scopeIds}
-                monitors={[]}
-                showMonitors={false}
-                activeMonitorId={null}
-                onSelectHood={choose}
-                onSelectMonitor={() => {}}
-                pin={pin}
-                traffic={null}
-                label="Asking rent by neighborhood"
-              />
-              <div className="legend">
-                <span className="text-xs text-muted-foreground">{rentLegend?.low ?? 'Lower'}</span>
-                {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
-                  <i key={tone} className={`tone-${tone}`} aria-hidden="true" />
-                ))}
-                <span className="text-xs text-muted-foreground">{rentLegend?.high ?? 'Higher'}</span>
-              </div>
-            </div>
-            <div className="map-pane">
-              <p className="pane-title">
-                {splitAir === 'pm25' ? 'PM2.5' : 'NO2'} · {airYear}
-              </p>
-              <StreetMap
-                paints={airPaints}
-                focusId={focus?.id ?? null}
-                scopeIds={scopeIds}
-                monitors={monitors}
-                showMonitors={showMonitors}
-                activeMonitorId={activeMonitorId}
-                onSelectHood={choose}
-                onSelectMonitor={(id) => setActiveMonitorId((current) => (current === id ? null : id))}
-                pin={pin}
-                traffic={null}
-                label={splitAir === 'pm25' ? 'PM2.5 by neighborhood' : 'NO2 by neighborhood'}
-              />
-              <div className="legend">
-                <span className="text-xs text-muted-foreground">{airLegend?.low ?? 'Lower'}</span>
-                {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
-                  <i key={tone} className={`tone-${tone}`} aria-hidden="true" />
-                ))}
-                <span className="text-xs text-muted-foreground">{airLegend?.high ?? 'Higher'}</span>
-              </div>
-            </div>
-          </div>
-        ) : (
+          )}
           <div className="map-frame">
-          <StreetMap
-            paints={view === 'pressure' ? pressurePaints : paints}
-            focusId={focus?.id ?? null}
-            scopeIds={scopeIds}
-            monitors={monitors}
-            showMonitors={showMonitors}
-            activeMonitorId={activeMonitorId}
-            onSelectHood={choose}
-            onSelectMonitor={(id) => setActiveMonitorId((current) => (current === id ? null : id))}
-            pin={pin}
-            traffic={traffic}
-          />
-          {view === 'pressure' ? (
-            <div className="legend">
-              <span className="text-xs text-muted-foreground">Outside this set</span>
-              <i className="tone-0" aria-hidden="true" />
-              <i className="tone-6" aria-hidden="true" />
-              <span className="text-xs text-muted-foreground">Asks rose, air still high</span>
-            </div>
-          ) : layer === 'pair' ? (
-            <div
-              className="legend-pair"
-              role="img"
-              aria-label="Color key: rent thirds from left to right, child asthma thirds from bottom to top."
-            >
-              <span className="axis-y text-xs text-muted-foreground">Child asthma →</span>
-              <div className="grid" aria-hidden="true">
-                {[2, 1, 0].flatMap((asthma) =>
-                  [0, 1, 2].map((rent) => <i key={`${rent}${asthma}`} className={`bi-${rent}${asthma}`} />),
-                )}
-              </div>
-              <span />
-              <span className="text-xs text-muted-foreground">Rent →</span>
-            </div>
-          ) : (
+            <StreetMap
+              paints={paints}
+              focusId={focus?.id ?? null}
+              scopeIds={scopeIds}
+              monitors={[]}
+              showMonitors={false}
+              activeMonitorId={null}
+              onSelectHood={choose}
+              onSelectMonitor={() => {}}
+              pin={pin}
+              traffic={null}
+            />
             <div className="legend">
               <span className="text-xs text-muted-foreground">
-                {layer === 'gap' ? 'More deep units' : (range?.low ?? 'Lower')}
+                {view === 'combined' ? 'Lighter burden' : (range?.low ?? 'Lower')}
               </span>
               {[0, 1, 2, 3, 4, 5, 6, 7].map((tone) => (
                 <i key={tone} className={`tone-${tone}`} aria-hidden="true" />
               ))}
               <span className="text-xs text-muted-foreground">
-                {layer === 'gap' ? 'Rent high, deep units thin' : (range?.high ?? 'Higher')}
+                {view === 'combined' ? 'Heavier burden' : (range?.high ?? 'Higher')}
               </span>
             </div>
-          )}
+          </div>
         </div>
-        )}
-        <p className="text-xs text-muted-foreground mt-2">
-          Streets, route names, and house numbers are OpenStreetMap, via OpenFreeMap. The color is still the neighborhood survey.
-        </p>
-        {zoomed && view !== 'split' && (
-          <div className="day-clock">
-            <div className="day-clock-head">
-              <p className="text-sm">
-                <strong>{formatClock(hour)}</strong>
-                <span className="text-muted-foreground">
-                  {' '}
-                  · {formatCount(day.entries)} vehicles an hour enter the zone
-                </span>
-              </p>
-              <button type="button" className="monitor-toggle" onClick={() => setPlaying((value) => !value)}>
-                {playing ? 'Pause the day' : 'Play the day'}
+
+        <aside className="dossier">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+            {focus && borough ? (
+              <button type="button" className="borough-link" onClick={() => chooseBorough(borough)}>
+                ← {focus.borough}
               </button>
-            </div>
-            <div className="day-bars" aria-hidden="true">
-              {WEEKDAY_CRZ_ENTRIES.map((entries, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  className={index === hour ? 'is-now' : undefined}
-                  style={{ height: `${Math.max(8, (entries / maxEntries) * 100)}%` }}
-                  onClick={() => {
-                    setHour(index)
-                    setPlaying(false)
-                  }}
-                >
-                  <span className="sr-only">{formatClock(index)}</span>
-                </button>
-              ))}
-            </div>
-            <label className="scrubber block text-sm">
-              <span className="text-muted-foreground">Hour of a weekday</span>
-              <input
-                type="range"
-                min={0}
-                max={23}
-                value={hour}
-                onChange={(event) => {
-                  setHour(Number(event.target.value))
-                  setPlaying(false)
-                }}
-              />
-            </label>
-            <p className="text-xs text-muted-foreground mt-2">
-              Estimated from the 2024 annual mean and weekday zone entries. The marks follow streets in view.
-              This does not score the toll.
-            </p>
-            <details className="fold">
-              <summary>How this hour is estimated</summary>
-              <p className="text-xs text-muted-foreground mt-2">
-                Weekday average from MTA counts of vehicles entering the Congestion Relief Zone.
-                {focus ? ` ${focus.name}` : ` ${borough}`} keeps its 2024 air as the level of the day:
-                estimated NO2 {formatUg(day.no2)} ppb and PM2.5 {formatUg(day.pm25)} µg/m³ at this hour,
-                against annual means of {formatUg(no2Now)} ppb and {formatUg(pmNow)} µg/m³. NO2 rises and
-                falls with the entries. PM2.5 moves less. The marks follow streets in view; they are not a count
-                of cars on that block. The survey does not record the hour, and this does not score the toll.
-              </p>
-            </details>
-          </div>
-        )}
-        {showMonitors && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Dots are real EPA monitors, not modeled for every neighborhood — NYC has only 14 for
-            PM2.5 and 4 for NO2. Click one for its 2025–2026 reading.
-          </p>
-        )}
-        </div>
-
-      <aside className="dossier">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {focus && borough ? (
-            <button type="button" className="borough-link" onClick={() => chooseBorough(borough)}>
-              ← {focus.borough}
-            </button>
-          ) : area ? (
-            <button type="button" className="borough-link" onClick={() => chooseBorough(null)}>
-              ← Citywide
-            </button>
-          ) : (
-            'Citywide'
-          )}
-        </p>
-        <h2 className="display text-4xl leading-none mt-1 mb-2">
-          {focus ? focus.name : borough ?? 'All 42 neighborhoods'}
-        </h2>
-        {focus ? (
-          <ul className="standing" aria-label={`${focus.name} against the city`}>
-            {standing.map((part) => (
-              <li key={part.text} className={`is-${part.lean}`}>
-                {part.text.charAt(0).toUpperCase() + part.text.slice(1)}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="standing">Choose a neighborhood to read it against the city.</p>
-        )}
-        {!focus && area && (
-          <p className="text-xs text-muted-foreground mb-2">
-            {area.count} neighborhoods, read as their median.
-          </p>
-        )}
-
-        <div className="figure-row">
-          <strong>{formatUg(pmNow)}</strong>
-          <div>
-            <div>µg/m³ PM2.5, 2024</div>
-            <div className={pmChange != null && pmChange < 0 ? 'delta-relief' : 'delta-pressure'}>
-              {formatPercent(pmChange)} since 2009
-              {no2Now != null ? ` · NO2 ${formatUg(no2Now)} ppb` : ''}
-            </div>
-          </div>
-        </div>
-        {zoomed && (
-          <div className="figure-row">
-            <strong>{formatUg(day.no2)}</strong>
-            <div>
-              <div>ppb NO2 at {formatClock(hour)}, estimated</div>
-              <div className={day.relative > 1 ? 'delta-pressure' : 'delta-relief'}>
-                PM2.5 {formatUg(day.pm25)} µg/m³ at the same hour · {formatCount(day.entries)} zone entries
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="figure-row">
-          <strong>{formatRent(ask?.median1br ?? null)}</strong>
-          <div>
-            <div>median asking rent for a new 1-bedroom lease, {ask?.month ?? 'latest'}</div>
-            <div className={rentChange != null && rentChange > 0 ? 'delta-pressure' : 'delta-relief'}>
-              {zoriEnd
-                ? `Zillow index ${formatRent(zoriEnd.value)} in ${zoriEnd.year} (${formatPercent(rentChange)} since 2019)`
-                : `Listings ${formatPercent(percentChange(askStart?.median1br ?? null, ask?.median1br ?? null))} since ${askStart?.month ?? 'the start'}`}
-            </div>
-          </div>
-        </div>
-        <RentTrend
-          place={focus ?? (borough && area ? { name: borough, asking1br: area.asking1br } : null)}
-        />
-        <div className="figure-row">
-          <strong>{formatShare(burden)}</strong>
-          <div>
-            <div>of renter households pay 30% or more of income on rent, {BURDEN_PERIOD}</div>
-            <div
-              className={
-                burden != null && cityBurden != null && (focus || borough)
-                  ? burden > cityBurden
-                    ? 'delta-pressure'
-                    : 'delta-relief'
-                  : 'text-muted-foreground'
-              }
-            >
-              {formatShare(burdenSevere)} pay half or more
-              {focus || borough ? ` · city ${formatShare(cityBurden)}` : ''}
-            </div>
-            {focus && (
-              <a
-                className="text-sm underline underline-offset-4"
-                href={`https://a816-dohbesp.nyc.gov/IndicatorPublic/neighborhood-reports/${reportSlug(focus.name)}/housing_and_health/`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Housing and health in {focus.name} ↗
-              </a>
+            ) : area ? (
+              <button type="button" className="borough-link" onClick={() => chooseBorough(null)}>
+                ← Citywide
+              </button>
+            ) : (
+              'Citywide'
             )}
-          </div>
-        </div>
-        <div className="figure-row">
-          <strong>{formatRate(deepRate)}</strong>
-          <div>
-            <div>deeply affordable units per 1,000 households, started since 2014</div>
-            <div className="text-muted-foreground">
-              {formatCount(deep)} units across {formatCount(deepHouseholds)} households (ACS {HOUSEHOLDS_PERIOD})
-            </div>
-            <div className="text-muted-foreground">
-              {asthma
-                ? `Child asthma ED visits tied to PM2.5: ${formatCount(Math.round(asthma.value))} per 100,000 (${asthma.period})`
-                : 'Asthma estimate unavailable'}
-            </div>
-          </div>
-        </div>
-        <Spark values={sparkValues} />
-        {sparkValues.length > 1 && (
-          <p className="text-xs text-muted-foreground mt-1">
-            {layer === 'rent'
-              ? 'Sparkline: asking rent for new one-bedroom leases, Feb 2025–Aug 2026.'
-              : layer === 'air'
-                ? 'Sparkline: annual PM2.5.'
-                : 'Sparkline: Zillow Observed Rent Index, annual.'}
           </p>
-        )}
-        <p className="mt-3">
-          <Link to={focus ? `/home?n=${focus.id}` : '/home'} className="text-sm underline underline-offset-4">
-            Open the {focus ? `${focus.name} forum` : 'neighborhood forums'}
-          </Link>
-        </p>
+          <h2 className="display text-4xl leading-none mt-1 mb-2">
+            {focus ? focus.name : borough ?? 'All 42 neighborhoods'}
+          </h2>
 
-      </aside>
+          {focus && focusRow && placeRead ? (
+            <>
+              <ActionPanel
+                focus={focus}
+                address={pin && pin.id === focus.id ? pin.label : null}
+                district={pin && pin.id === focus.id ? district : null}
+                paid={paidInput.trim() && Number.isFinite(paidValue) && paidValue > 0 ? paidValue : null}
+              />
+              <section className="theme-block" aria-labelledby="score-figure">
+                <h3 id="score-figure">Combined burden</h3>
+                <div className="figure-row">
+                  <strong>{focusRow.score == null ? '—' : Math.round(focusRow.score)}</strong>
+                  <div>
+                    <div>out of 100. Higher means the three are heavier together.</div>
+                    {carriesAllThree(focusRow) && (
+                      <div>Above the middle of the 42 neighborhoods on air, rent burden, and the rise in new-lease asks.</div>
+                    )}
+                  </div>
+                </div>
+                <details className="fold">
+                  <summary>How this score is weighted</summary>
+                  <p className="text-sm mt-2">{SCORE_MEANS}</p>
+                  <Weights weights={weights} onChange={setWeights} />
+                  <p className="text-xs text-muted-foreground mt-2">{SCORE_LIMITS}</p>
+                </details>
+              </section>
+
+              <section className="theme-block" aria-labelledby="air-figure">
+                <h3 id="air-figure">Air quality</h3>
+                <p className="text-sm mt-1">{placeRead.airMeans}</p>
+                <p className="text-sm mt-1">{placeRead.airLine}</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  The EPA annual standard is {EPA_ANNUAL_PM25.toFixed(1)} µg/m³. The air record does not show whether
+                  the toll changed the air.
+                </p>
+                {placeRead.no2Line && <p className="text-sm text-muted-foreground mt-1">{placeRead.no2Line}</p>}
+                {placeRead.asthmaLine && <p className="text-sm mt-1">{placeRead.asthmaLine}</p>}
+                {monitors && <p className="text-sm text-muted-foreground mt-1">{monitors}</p>}
+                <Spark values={focus.pm25.map((point) => point.value)} />
+                <p className="text-xs text-muted-foreground">Annual PM2.5, 2009–2024. NYC Community Air Survey.</p>
+              </section>
+
+              <section className="theme-block" aria-labelledby="equity-figure">
+                <h3 id="equity-figure">Housing</h3>
+                <p className="text-sm mt-1">{placeRead.burdenMeans}</p>
+                <p className="text-sm mt-1">{placeRead.burdenLine}</p>
+                <p className="text-xs text-muted-foreground mt-1">{placeRead.burdenCaveat}</p>
+                {placeRead.deepLine && <p className="text-sm mt-2">{placeRead.deepLine}</p>}
+              </section>
+
+              <section className="theme-block" aria-labelledby="rent-figure">
+                <h3 id="rent-figure">Rent</h3>
+                <p className="text-sm mt-1">{placeRead.rentMeans}</p>
+                <p className="text-sm mt-1">{placeRead.rentLine}</p>
+                <p className="text-sm mt-1">{placeRead.rentMove}</p>
+                <label className="block text-sm mt-3">
+                  <span className="text-muted-foreground">What you pay now, monthly</span>
+                  <input
+                    className="place-select mt-1"
+                    type="number"
+                    min={0}
+                    step={50}
+                    inputMode="numeric"
+                    placeholder="2500"
+                    value={paidInput}
+                    onChange={(event) => setPaidInput(event.target.value)}
+                  />
+                </label>
+                {paidNote && <p className="text-sm mt-2">{paidNote}</p>}
+                {gap ? (
+                  <p className="text-sm mt-2">
+                    {gap.note}{' '}
+                    <a href={gap.orderHref} target="_blank" rel="noreferrer">
+                      Order 57 ↗
+                    </a>
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    The latest month has fewer than 20 listings, so this page does not compare the ask with the Rent
+                    Guidelines Board cap.
+                  </p>
+                )}
+                {season && <p className="text-sm text-muted-foreground mt-2">{season.note}</p>}
+                <RentTrend place={{ name: focus.name, asking1br: focus.asking1br }} />
+              </section>
+            </>
+          ) : (
+            <>
+              <p className="text-sm">
+                {borough && area
+                  ? `${borough} is ${area.count} neighborhoods, read as their median for air and new leases. Rent burden is the share of the borough's renter households.`
+                  : `Citywide, 2024 PM2.5 averages ${formatUg(cityPm)} µg/m³. ${formatShare(cityBurden)} of renter households pay 30% or more of income. New one-bedroom asks are ${formatPercent(cityRentChange)} since ${cityAskStart ? monthLabel(cityAskStart.month) : 'the start'}.`}
+              </p>
+              {borough && area && (
+                <p className="text-sm mt-2">
+                  PM2.5 {formatUg(airAt(area.pm25, '2024'))} µg/m³. Rent burden {formatShare(burdenShare(CITY.neighborhoods.filter((n) => n.borough === borough)))}.
+                  Deeply affordable homes {formatRate(deepPer1k(CITY.neighborhoods.filter((n) => n.borough === borough)))} per
+                  1,000 households. Latest new one-bedroom ask {formatRent(last(area.asking1br)?.median1br ?? null)}.
+                </p>
+              )}
+              <section className="theme-block" aria-labelledby="score-figure">
+                <h3 id="score-figure">Who carries all three</h3>
+                {borough && (
+                  <p className="text-xs text-muted-foreground mt-1">Across all 42 neighborhoods, not only {borough}.</p>
+                )}
+                <p className="text-sm mt-1">{together.sentence}</p>
+                {together.names.length > 0 && (
+                  <div className="name-row">
+                    {together.names.map((row) => (
+                      <button key={row.id} type="button" onClick={() => choose(row.id)}>
+                        {row.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm mt-3">{SCORE_MEANS}</p>
+                <Weights weights={weights} onChange={setWeights} />
+                <p className="text-xs text-muted-foreground mt-2">{SCORE_LIMITS}</p>
+                <h3 className="mt-4">Heaviest with these weights</h3>
+                <ol className="desk-read">
+                  {rows.slice(0, 8).map((row) => (
+                    <li key={row.id}>
+                      <button type="button" className="borough-link" onClick={() => choose(row.id)}>
+                        {row.name}
+                      </button>{' '}
+                      {row.score == null ? '—' : Math.round(row.score)}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </>
+          )}
+        </aside>
       </div>
 
-        <ActionPanel
-          focus={focus}
-          address={pin && pin.id === focus?.id ? pin.label : null}
-          pressure={pressure}
-          onChoose={choose}
-          onPressure={showPressure}
-        />
-
-        <div className="atlas-tools">
-        <section className="health-premium" aria-labelledby="premium-title">
-          <h3 id="premium-title" className="display text-2xl mb-1">
-            Health premium
-          </h3>
-          <p className="text-sm text-muted-foreground mb-3">
-            30% of yearly income, as a monthly rent. Neighborhoods whose latest new one-bedroom ask is at or
-            under that, cleanest 2024 air first. The 30% figure is a budgeting rule, not a legal cap.
-          </p>
+      <section className="health-premium" aria-labelledby="premium-title">
+        <h3 id="premium-title" className="display text-2xl mb-1">
+          Where a budget can go
+        </h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Neighborhoods whose latest new one-bedroom ask is at or under that monthly rent, cleanest 2024 air first.
+          The 30% figure is a budgeting rule, not a legal cap, and it does not say what you qualify for.
+        </p>
+        <div className="atlas-find">
           <label className="block text-sm">
             <span className="text-muted-foreground">Yearly income</span>
             <input
@@ -960,12 +613,7 @@ export default function CityAtlas() {
               onChange={(event) => setIncomeInput(event.target.value)}
             />
           </label>
-          {incomeCap != null && (
-            <p className="text-sm mt-2">
-              30% of {formatRent(incomeValue)} a year is {formatRent(incomeCap)} a month.
-            </p>
-          )}
-          <label className="block text-sm mt-3">
+          <label className="block text-sm">
             <span className="text-muted-foreground">
               {incomeCap != null ? 'Monthly rent is set from income until you clear it' : 'Or a target monthly rent'}
             </span>
@@ -981,262 +629,52 @@ export default function CityAtlas() {
               onChange={(event) => setBudgetInput(event.target.value)}
             />
           </label>
-          {bracket && bracket.rows.length === 0 && (
-            <p className="text-sm mt-3">
-              No neighborhood in this atlas has a new one-bedroom ask at or under {formatRent(bracket.budget)} in{' '}
-              {monthLabel(bracket.month)}.
-            </p>
-          )}
-          {bracket && bracket.rows.length > 0 && (
-            <>
-              <ol className="desk-read">
-                {bracket.rows.map((row) => (
-                  <li key={row.id}>
-                    <button type="button" className="borough-link" onClick={() => choose(row.id)}>
-                      {row.name}
-                    </button>{' '}
-                    {formatRent(row.ask)}
-                    {row.listings < 20 ? ` · ${row.listings} listings` : ''}. PM2.5 {formatUg(row.pm25)} µg/m³. NO2{' '}
-                    {formatUg(row.no2)} ppb.
-                  </li>
-                ))}
-              </ol>
-              {bracket.insight && (
-                <div className="next-steps">
-                  {bracket.insight.href.startsWith('http') ? (
-                    <a href={bracket.insight.href} target="_blank" rel="noreferrer">
-                      {bracket.insight.title} ↗
-                    </a>
-                  ) : (
-                    <Link to={bracket.insight.href}>{bracket.insight.title}</Link>
-                  )}
-                  <p className="text-sm text-muted-foreground">{bracket.insight.note}</p>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        <section className="compare" aria-labelledby="compare-title">
-          <h3 id="compare-title" className="display text-2xl mb-1">
-            Compare
-          </h3>
-          {focus ? (
-            <>
-              <p className="text-sm text-muted-foreground mb-3">
-                {focus.name} is yours. Pros and cons are the other neighborhood, measured against it.
-              </p>
-              <label className="block text-sm">
-                <span className="text-muted-foreground">Against</span>
-                <select
-                  className="place-select mt-1"
-                  value={compared?.id ?? ''}
-                  onChange={(event) => compareWith(event.target.value)}
-                >
-                  <option value="">Choose a neighborhood</option>
-                  {CITY.neighborhoods.filter((n) => n.id !== focus.id).map((n) => (
-                    <option key={n.id} value={n.id}>
-                      {n.borough} — {n.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {comparison && compared && (
-                <>
-                  <h4 className="mt-4 text-sm uppercase tracking-widest text-muted-foreground">
-                    Pros of {compared.name}
-                  </h4>
-                  {comparison.pros.length ? (
-                    <ul className="desk-read">
-                      {comparison.pros.map((point) => (
-                        <li key={point.id}>
-                          <strong>{point.title}.</strong> {point.detail}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm mt-1">None on rent, asthma, or deeply affordable homes.</p>
-                  )}
-                  <h4 className="mt-4 text-sm uppercase tracking-widest text-muted-foreground">
-                    Cons of {compared.name}
-                  </h4>
-                  {comparison.cons.length ? (
-                    <ul className="desk-read">
-                      {comparison.cons.map((point) => (
-                        <li key={point.id}>
-                          <strong>{point.title}.</strong> {point.detail}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm mt-1">None on rent, asthma, or deeply affordable homes.</p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-3">{comparison.zone}</p>
-                  {comparison.insight && (
-                    <div className="next-steps">
-                      <p className="text-sm mb-2">
-                        {compared.name} is ahead of {focus.name}.
-                      </p>
-                      <a href={comparison.insight.href} target="_blank" rel="noreferrer">
-                        {comparison.insight.title} ↗
-                      </a>
-                      <p className="text-sm text-muted-foreground">{comparison.insight.note}</p>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Choose your neighborhood on the map, then compare it with another.
-            </p>
-          )}
-        </section>
         </div>
-
-        <table className="borough-table">
-          <caption className="text-left text-xs text-muted-foreground mb-1">
-            PM2.5 and rent are the median of neighborhoods, not of people. Rent-burdened is the share of all the
-            borough's renter households paying 30% or more of income on rent. Deep units are extremely-low and
-            very-low income homes in projects started since 2014, per 1,000 households in the whole borough.
-          </caption>
-          <thead>
-            <tr>
-              <th>Borough</th>
-              <th>PM2.5</th>
-              <th>1-bed, new lease</th>
-              <th>Rent-burdened</th>
-              <th>Deep units per 1,000 households</th>
-            </tr>
-          </thead>
-          <tbody>
-            {boroughs.map((row) => (
-              <tr key={row.borough} className={borough === row.borough ? 'is-current' : undefined}>
-                <td>
-                  <button
-                    type="button"
-                    className="borough-link"
-                    aria-pressed={borough === row.borough}
-                    onClick={() => chooseBorough(borough === row.borough ? null : row.borough)}
-                  >
-                    {row.borough}
-                  </button>
-                </td>
-                <td>{formatUg(row.pm)}</td>
-                <td>{formatRent(row.rent)}</td>
-                <td>{formatShare(row.burden)}</td>
-                <td title={`${formatCount(row.deep)} units`}>{formatRate(row.deepPer1k)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      <div className="desk-dock">
-        {deskOpen && (
-          <section id="desk-chat" className="desk-panel" role="dialog" aria-labelledby="desk-title">
-            <header className="desk-panel-head">
-              <div>
-                <h3 id="desk-title" className="display text-2xl leading-none">
-                  The desk
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  The numbers that change the decision, then the step to take.
-                </p>
-              </div>
-              <button type="button" className="desk-close" aria-label="Close the desk" onClick={() => setDeskOpen(false)}>
-                Close
-              </button>
-            </header>
-            <div className="desk-panel-body">
-              {focus && speech ? (
-                <>
-                  <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">{deskSource}</p>
-                  <ul className="desk-read">
-                    {speech
-                      .split('\n')
-                      .map((line) => line.trim())
-                      .filter(Boolean)
-                      .map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                  </ul>
-                  {steps.length > 0 && (
-                    <div className="next-steps">
-                      <ol>
-                        {steps.map((step) => (
-                          <li key={step.kind}>
-                            <a href={step.href} target="_blank" rel="noreferrer">
-                              {step.title} ↗
-                            </a>
-                            <p className="text-sm text-muted-foreground">{step.note}</p>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                  {brief?.notice && <p className="text-xs text-muted-foreground mt-2">{brief.notice}</p>}
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Name a neighborhood, or ask about the one selected on the map. A follow-up keeps that place.
-                </p>
-              )}
-            </div>
-            <form
-              className="brief-panel"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void askDesk()
-              }}
-            >
-              <label className="sr-only" htmlFor="desk-question">
-                Ask the desk
-              </label>
-              <textarea
-                id="desk-question"
-                ref={deskField}
-                value={question}
-                disabled={briefStatus === 'loading'}
-                placeholder={focus ? `What should I do in ${focus.name}?` : 'Try East Harlem, Astoria, or Lower Manhattan'}
-                onChange={(event) => setQuestion(event.target.value)}
-                maxLength={500}
-              />
-              <button
-                type="submit"
-                className="mt-3 bg-primary text-primary-foreground px-4 py-2 text-sm disabled:opacity-50"
-                disabled={briefStatus === 'loading' || (!question.trim() && !focus)}
-              >
-                {briefStatus === 'loading' ? 'Writing…' : 'Ask'}
-              </button>
-              {briefStatus === 'error' && (
-                <p className="text-sm mt-3" role="alert">
-                  {briefError}{' '}
-                  <button type="button" className="underline" onClick={() => void askDesk()}>
-                    Try again
-                  </button>
-                </p>
-              )}
-            </form>
-          </section>
+        {incomeCap != null && (
+          <p className="text-sm mt-2">
+            30% of {formatRent(incomeValue)} a year is {formatRent(incomeCap)} a month.
+          </p>
         )}
-        <button
-          type="button"
-          className="desk-launcher"
-          aria-expanded={deskOpen}
-          aria-controls={deskOpen ? 'desk-chat' : undefined}
-          aria-label={deskOpen ? 'Close the desk' : 'Ask the desk'}
-          onClick={() => setDeskOpen((open) => !open)}
-        >
-          {deskOpen ? (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 6.5h14v9H9l-4 3.2V6.5z" />
-            </svg>
-          )}
-        </button>
-      </div>
+        {bracket && bracket.rows.length === 0 && (
+          <p className="text-sm mt-3">
+            No neighborhood in this atlas has a new one-bedroom ask at or under {formatRent(bracket.budget)} in{' '}
+            {monthLabel(bracket.month)}.
+          </p>
+        )}
+        {bracket && bracket.rows.length > 0 && (
+          <>
+            <ol className="desk-read">
+              {bracket.rows.map((row) => (
+                <li key={row.id}>
+                  <button type="button" className="borough-link" onClick={() => choose(row.id)}>
+                    {row.name}
+                  </button>{' '}
+                  {formatRent(row.ask)}. PM2.5 {formatUg(row.pm25)} µg/m³.
+                </li>
+              ))}
+            </ol>
+            {bracket.insight && (
+              <div className="next-steps">
+                {bracket.insight.href.startsWith('http') ? (
+                  <a href={bracket.insight.href} target="_blank" rel="noreferrer">
+                    {bracket.insight.title} ↗
+                  </a>
+                ) : (
+                  <Link to={bracket.insight.href}>{bracket.insight.title}</Link>
+                )}
+                <p className="text-sm text-muted-foreground">{bracket.insight.note}</p>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+      <DeskDock
+        focusId={focus?.id ?? null}
+        focusName={focus?.name ?? null}
+        pin={pin}
+        district={district}
+        onChoose={choose}
+      />
     </div>
   )
 }
