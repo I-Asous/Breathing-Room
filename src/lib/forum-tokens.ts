@@ -4,7 +4,14 @@
  * can mint their own and removing a post removes what it earned.
  */
 
-export const TOKEN_RATES = { post: 1, reply: 1, likeReceived: 0.5 } as const
+export const TOKEN_RATES = { post: 1, reply: 1, likesPerToken: 2 } as const
+
+/** Plain-language rates, for the forum's info button. */
+export const HOW_TOKENS_WORK = [
+  `${TOKEN_RATES.post} token for each post`,
+  `${TOKEN_RATES.reply} token for each reply`,
+  `1 token for every ${TOKEN_RATES.likesPerToken} likes from neighbors`,
+]
 
 /** The reaction emoji the forum uses as a like. */
 export const LIKE = '👍'
@@ -52,10 +59,6 @@ function withTotal(counts: Omit<TokenTally, 'total'>): TokenTally {
   const total =
     counts.posts * TOKEN_RATES.post +
     counts.replies * TOKEN_RATES.reply +
-    counts.likesReceived * TOKEN_RATES.likeReceived
+    Math.floor(counts.likesReceived / TOKEN_RATES.likesPerToken)
   return { ...counts, total }
-}
-
-export function formatTokens(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }

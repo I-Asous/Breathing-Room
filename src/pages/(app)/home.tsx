@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady } from 'deepspace'
 import NeighborhoodForum from '@/components/messaging/NeighborhoodForum'
 import { useForumTokens } from '@/components/messaging/hooks/useForumTokens'
-import { TOKEN_RATES, formatTokens, type TokenTally } from '@/lib/forum-tokens'
+import { HOW_TOKENS_WORK, TOKEN_RATES, type TokenTally } from '@/lib/forum-tokens'
 import { BOROUGHS, CITY, neighborhoodById, type Borough } from '@/lib/metrics'
 
 export default function HomePage() {
@@ -89,8 +89,6 @@ export default function HomePage() {
   )
 }
 
-const HOW_TOKENS_WORK = `${TOKEN_RATES.post} per post or reply, ${TOKEN_RATES.likeReceived} when a neighbor likes yours. No cash value.`
-
 function TokenPill({
   signedIn,
   tally,
@@ -100,31 +98,76 @@ function TokenPill({
   tally: TokenTally | null
   onSignIn: () => void
 }) {
-  if (!signedIn) {
-    return (
-      <button
-        type="button"
-        className="self-start rounded-full border border-border px-3 py-1.5 text-left text-sm hover:bg-muted"
-        title={HOW_TOKENS_WORK}
-        onClick={onSignIn}
-      >
-        ◆ Sign in to earn tokens
-      </button>
-    )
-  }
-  const breakdown = tally
-    ? `${tally.posts} ${tally.posts === 1 ? 'post' : 'posts'} · ${tally.replies} ${
-        tally.replies === 1 ? 'reply' : 'replies'
-      } · ${tally.likesReceived} ${tally.likesReceived === 1 ? 'like' : 'likes'} received`
-    : 'Counting…'
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !box.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', close)
+    }
+  }, [open])
+
+  const likesToNext = tally ? TOKEN_RATES.likesPerToken - (tally.likesReceived % TOKEN_RATES.likesPerToken) : null
+
   return (
-    <div className="shrink-0 self-start rounded-lg border border-border bg-card px-4 py-2.5 sm:text-right" title={HOW_TOKENS_WORK}>
-      <p className="text-xs uppercase tracking-widest text-muted-foreground">Your tokens</p>
-      <p className="display text-3xl leading-none" aria-live="polite">
-        <span className="text-primary">◆</span> {tally ? formatTokens(tally.total) : '–'}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">{breakdown}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{HOW_TOKENS_WORK}</p>
+    <div ref={box} className="relative shrink-0 self-start">
+      <div className="flex items-center gap-2 rounded-full border border-border bg-card py-1.5 pl-3.5 pr-1.5">
+        {signedIn ? (
+          <span className="text-sm font-medium" aria-live="polite">
+            <span className="text-primary">◆</span> {tally ? tally.total : '–'} {tally?.total === 1 ? 'token' : 'tokens'}
+          </span>
+        ) : (
+          <button type="button" className="text-sm hover:underline underline-offset-4" onClick={onSignIn}>
+            <span className="text-primary">◆</span> Sign in to earn tokens
+          </button>
+        )}
+        <button
+          type="button"
+          className="flex h-6 w-6 items-center justify-center rounded-full text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="How tokens work"
+          aria-expanded={open}
+          aria-controls="token-info"
+          onClick={() => setOpen((value) => !value)}
+        >
+          ⓘ
+        </button>
+      </div>
+      {open && (
+        <div
+          id="token-info"
+          role="dialog"
+          aria-label="How tokens work"
+          className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-border bg-card p-4 text-sm shadow-lg sm:left-auto sm:right-0"
+        >
+          <p className="font-medium">How tokens work</p>
+          <ul className="mt-2 space-y-1 text-muted-foreground">
+            {HOW_TOKENS_WORK.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {signedIn && tally && (
+            <>
+              <p className="mt-3 font-medium">Yours so far</p>
+              <p className="mt-1 text-muted-foreground">
+                {tally.posts} {tally.posts === 1 ? 'post' : 'posts'} · {tally.replies}{' '}
+                {tally.replies === 1 ? 'reply' : 'replies'} · {tally.likesReceived}{' '}
+                {tally.likesReceived === 1 ? 'like' : 'likes'} received
+              </p>
+              {likesToNext === 1 && <p className="mt-1 text-muted-foreground">One more like earns your next token.</p>}
+            </>
+          )}
+          <p className="mt-3 text-xs text-muted-foreground">Tokens thank you for contributing. They have no cash value.</p>
+        </div>
+      )}
     </div>
   )
 }

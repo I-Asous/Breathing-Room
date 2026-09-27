@@ -77,7 +77,7 @@ export function ForumFeed({
           type="button"
           className="text-xs text-muted-foreground disabled:cursor-default"
           disabled={own}
-          title={own ? `Likes from neighbors earn you ${TOKEN_RATES.likeReceived} tokens each` : 'Sign in to like'}
+          title={own ? `Every ${TOKEN_RATES.likesPerToken} likes from neighbors earn you 1 token` : 'Sign in to like'}
           onClick={own ? undefined : onSignIn}
         >
           ♥ {label}
