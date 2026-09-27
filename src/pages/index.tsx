@@ -23,22 +23,21 @@
 
 import { Link } from 'react-router-dom'
 import CityAtlas from '@/components/city/CityAtlas'
-import CleaningNotes from '@/components/city/CleaningNotes'
 import { CITY } from '@/lib/metrics'
 
-const traffic = 'headline' in CITY.trafficNote ? CITY.trafficNote : null
+const SHOWN_SOURCES = new Set([
+  'Air Quality and Health Impacts',
+  'Affordable Housing Production by Building',
+  'NYC rental listing extracts',
+  'UHF42 neighborhood boundaries',
+])
 
 export default function Landing() {
   return (
     <div data-testid="static-landing" className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
-          <div>
-            <p className="text-xs uppercase tracking-widest text-muted-foreground">
-              Columbia DivHacks · Hack the City
-            </p>
-            <h1 className="display text-lg leading-none">Breathing Room</h1>
-          </div>
+          <h1 className="display text-lg leading-none">Breathing Room</h1>
           <Link to="/home" className="text-sm underline underline-offset-4">
             Forums
           </Link>
@@ -46,60 +45,53 @@ export default function Landing() {
       </header>
 
       <main className="mx-auto max-w-6xl px-5 py-6 md:py-8">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
-          New York, neighborhood by neighborhood
-        </p>
         <p className="mb-6 max-w-2xl text-base text-muted-foreground">
-          Forty-two neighborhoods. The air through 2024, asking rents for new one-bedroom leases through
-          August 2026, and where deeply affordable homes were built.
+          Type an address or choose a neighborhood. See its air, the share of income that goes to rent, and what a
+          new lease asks — and where those three are heavy together.
         </p>
         <CityAtlas />
-
-        <CleaningNotes />
       </main>
 
       <footer className="border-t border-border">
-        <div className="mx-auto max-w-6xl px-5 py-8 text-sm text-muted-foreground">
-          <p className="mb-3">
-            ZIP rents are placed in a neighborhood by the centroid of listings in that ZIP.
-            Asthma estimates end in 2017–2019. The neighborhood air model ends in 2024, the year
-            before congestion pricing; it is not scored here. The map's monitor dots add real,
-            far sparser EPA readings from after that date.
-          </p>
-          {traffic && (
-            <p className="mb-3">
-              {traffic.headline}{' '}
-              <a className="underline underline-offset-4" href={traffic.href}>
-                {traffic.source}
-              </a>
-              .
+        <div className="mx-auto max-w-6xl px-5 py-6 text-sm text-muted-foreground">
+          <details className="fold">
+            <summary>Sources, and what this page does not show</summary>
+            <p className="mt-3 mb-3">
+              ZIP rents are placed in a neighborhood by the centroid of listings in that ZIP. There is no
+              block-level rent or air series. Asthma estimates end in 2017–2019. Neighborhood air ends in 2024,
+              the year before congestion pricing, and does not show whether the toll changed the air. Asking rent
+              is for new one-bedroom leases. Deeply affordable units are financed production since 2014, not vacant
+              listings. Borough figures, when a borough is selected, are medians of its neighborhoods.
             </p>
-          )}
-          <ul className="space-y-1">
-            {CITY.sources.map((source) => (
-              <li key={source.href}>
-                <a className="underline underline-offset-4" href={source.href}>
-                  {source.name}
+            <ul className="space-y-1">
+              {CITY.sources.filter((source) => SHOWN_SOURCES.has(source.name)).map((source) => (
+                <li key={source.href}>
+                  <a className="underline underline-offset-4" href={source.href}>
+                    {source.name}
+                  </a>
+                  <span> — {source.publisher}</span>
+                </li>
+              ))}
+              <li>
+                <a
+                  className="underline underline-offset-4"
+                  href="https://www.census.gov/programs-surveys/acs/data/summary-file.html"
+                >
+                  American Community Survey 5-year, households by ZIP (B11001)
                 </a>
-                <span> — {source.publisher}</span>
+                <span> — US Census Bureau, 2020–2024, summed into neighborhoods by NYC Health ZIP definition</span>
               </li>
-            ))}
-            <li>
-              <a className="underline underline-offset-4" href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">
-                American Community Survey 5-year, households by ZIP (B11001)
-              </a>
-              <span> — US Census Bureau, 2020–2024, summed into neighborhoods by NYC Health ZIP definition</span>
-            </li>
-            <li>
-              <a className="underline underline-offset-4" href="https://www.census.gov/programs-surveys/acs/data/summary-file.html">
-                American Community Survey 5-year, gross rent as a share of income by ZIP (B25070)
-              </a>
-              <span> — US Census Bureau, 2020–2024, checked against </span>
-              <a className="underline underline-offset-4" href="https://a816-dohbesp.nyc.gov/IndicatorPublic/data-explorer/housing-stability/?id=2336">
-                NYC Health's rent-burdened households
-              </a>
-            </li>
-          </ul>
+              <li>
+                <a
+                  className="underline underline-offset-4"
+                  href="https://www.census.gov/programs-surveys/acs/data/summary-file.html"
+                >
+                  American Community Survey 5-year, gross rent as a share of income by ZIP (B25070)
+                </a>
+                <span> — US Census Bureau, 2020–2024</span>
+              </li>
+            </ul>
+          </details>
         </div>
       </footer>
     </div>

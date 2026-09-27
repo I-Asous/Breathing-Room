@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady } from 'deepspace'
-import ChatPage from '@/components/messaging/ChatPage'
+import NeighborhoodForum from '@/components/messaging/NeighborhoodForum'
 import { BOROUGHS, CITY, neighborhoodById, type Borough } from '@/lib/metrics'
 
 export default function HomePage() {
@@ -13,6 +13,7 @@ export default function HomePage() {
   function open(id: string) {
     const next = new URLSearchParams(params)
     next.set('n', id)
+    next.delete('p')
     setParams(next, { replace: true })
   }
 
@@ -21,7 +22,7 @@ export default function HomePage() {
       <aside className="max-h-48 shrink-0 overflow-y-auto border-b border-border md:max-h-none md:w-60 md:border-b-0 md:border-r">
         <div className="px-4 py-4">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">42 forums</p>
-          <p className="mt-1 text-sm text-muted-foreground">One room for each neighborhood.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Public posts, then replies under each one.</p>
         </div>
         {BOROUGHS.map((borough) => (
           <BoroughList key={borough} borough={borough} activeId={place?.id ?? null} onOpen={open} />
@@ -35,7 +36,7 @@ export default function HomePage() {
           </p>
           <h1 className="mt-1 text-3xl leading-none">{place ? place.name : 'Choose a neighborhood'}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Posts and replies stay in this neighborhood. A reply opens on the message it answers.
+            Anyone can read. A signed-in neighbor can start a post, and others reply under it.
           </p>
           <p className="mt-2 text-sm">
             <Link to={place ? `/?n=${place.id}` : '/'} className="underline underline-offset-4">
@@ -53,10 +54,18 @@ export default function HomePage() {
         </header>
         <div className="min-h-0 flex-1">
           {place ? (
-            <ChatPage
+            <NeighborhoodForum
               key={place.id}
               channelName={place.name}
               description={`${place.borough} neighborhood forum`}
+              postId={params.get('p')}
+              onOpenPost={(id) => {
+                const next = new URLSearchParams(params)
+                if (id) next.set('p', id)
+                else next.delete('p')
+                setParams(next, { replace: true })
+              }}
+              onSignIn={() => setShowAuth(true)}
               className="h-full"
             />
           ) : (

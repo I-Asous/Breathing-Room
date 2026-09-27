@@ -452,3 +452,38 @@ export function neighborhoodById(id: string | null): Neighborhood | null {
   if (!id) return null
   return CITY.neighborhoods.find((n) => n.id === id) ?? null
 }
+
+function milesBetween(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const toRad = (degrees: number) => (degrees * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/** EPA PM2.5 monitors near an address. The neighborhood color is still the survey, not these dots. */
+export function nearestPmMonitors(lon: number, lat: number, radiusMiles = 2) {
+  const ranked = CITY.airMonitors
+    .map((monitor) => {
+      const latest = last(monitor.pm25)
+      if (!latest) return null
+      return {
+        name: monitor.name,
+        miles: milesBetween(lon, lat, monitor.lon, monitor.lat),
+        year: latest.year,
+        value: latest.value,
+      }
+    })
+    .filter((monitor): monitor is NonNullable<typeof monitor> => monitor != null)
+    .sort((a, b) => a.miles - b.miles)
+  const nearest = ranked[0]
+  if (!nearest) return null
+  return {
+    citywide: ranked.length,
+    within: ranked.filter((monitor) => monitor.miles <= radiusMiles).length,
+    radiusMiles,
+    nearest,
+  }
+}
