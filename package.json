@@ -13,7 +13,8 @@
   "scripts": {
     "dev": "deepspace dev start",
     "preview:city": "vite --config vite.preview.config.ts --host 127.0.0.1 --port 44731",
-    "desk:imessage": "node scripts/imessage-desk.mjs",
+    "desk:imessage": "node --env-file-if-exists=.env scripts/imessage-desk.mjs",
+    "desk:terminal": "node scripts/terminal-desk.mjs",
     "build": "vite build",
     "login": "deepspace auth login",
     "deploy": "deepspace deploy",

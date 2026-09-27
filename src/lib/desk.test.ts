@@ -80,4 +80,38 @@ describe('interpretDesk', () => {
     expect(elsewhere.text).toContain('council.nyc.gov/districts/')
     expect(elsewhere.text).not.toContain('district-8')
   })
+
+  it('answers neighborhood questions that name no place, and declines unrelated ones', () => {
+    const toll = interpretDesk('how much is the congestion toll?', null, origin)
+    expect(toll.kind).toBe('help')
+    expect(toll.text).toContain('$9')
+
+    const cleanest = interpretDesk('which neighborhood has the cleanest air?', null, origin)
+    expect(cleanest.text).toContain('PM2.5 in 2024, the lowest')
+
+    const priciest = interpretDesk('where is rent the most expensive?', null, origin)
+    expect(priciest.text).toContain('asking rent, the highest')
+
+    const vague = interpretDesk('is it a good area for families?', null, origin)
+    expect(vague.text).toContain('Which neighborhood')
+
+    const followUp = interpretDesk('is it safe for kids?', '303', origin)
+    expect(followUp.kind).toBe('brief')
+    expect(followUp.neighborhoodId).toBe('303')
+
+    const tellMore = interpretDesk('tell me more', '303', origin)
+    expect(tellMore.kind).toBe('brief')
+
+    for (const offTopic of ['write me a poem about Astoria', 'what is bitcoin trading at?', 'can you help with my python homework?']) {
+      const turn = interpretDesk(offTopic, '303', origin)
+      expect(turn.kind).toBe('help')
+      expect(turn.text).toContain('I can only help with New York neighborhoods')
+    }
+
+    const unrelated = interpretDesk('who won the world cup in 2018?', null, origin)
+    expect(unrelated.text).toContain('I can only help with New York neighborhoods')
+
+    const zip = interpretDesk('what zip code is Astoria?', null, origin)
+    expect(zip.kind).toBe('brief')
+  })
 })
