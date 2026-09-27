@@ -21,8 +21,8 @@
  * - Voice: specific, numerical, unwilling to score data it does not have
  */
 
-import { Link } from 'react-router-dom'
 import CityAtlas from '@/components/city/CityAtlas'
+import SiteHeader from '@/components/SiteHeader'
 import { CITY } from '@/lib/metrics'
 
 const SHOWN_SOURCES = new Set([
@@ -35,14 +35,7 @@ const SHOWN_SOURCES = new Set([
 export default function Landing() {
   return (
     <div data-testid="static-landing" className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
-          <h1 className="display text-lg leading-none">Breathing Room</h1>
-          <Link to="/home" className="text-sm underline underline-offset-4">
-            Forums
-          </Link>
-        </div>
-      </header>
+      <SiteHeader />
 
       <main className="mx-auto max-w-6xl px-5 py-6 md:py-8">
         <p className="mb-6 max-w-2xl text-base text-muted-foreground">
