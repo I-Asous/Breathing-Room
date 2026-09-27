@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
-import { isWriterRole, useMessages, useUser, useUserLookup, type Message, type RecordData } from 'deepspace'
+import { isWriterRole, useMessages, useReactions, useUser, useUserLookup, type Message, type RecordData } from 'deepspace'
 import { composePost, splitPost } from '@/lib/forum-post'
+import { LIKE, TOKEN_RATES } from '@/lib/forum-tokens'
+import { CoinBadge } from '@/components/messaging/CoinBadge'
 
 function authorIdOf(message: RecordData<Message>): string {
   return message.data.authorId || message.createdBy
@@ -20,13 +22,23 @@ export function ForumFeed({
   postId,
   onOpenPost,
   onSignIn,
+  onActivity,
+  standing,
+  onLiked,
 }: {
   channelId: string
   postId: string | null
   onOpenPost: (id: string | null) => void
   onSignIn: () => void
+  /** Called after the signed-in neighbor posts, replies, likes, or removes, so a token total can refresh. */
+  onActivity?: () => void
+  /** Public token totals by userId, for the coin next to each author's name. */
+  standing?: ReadonlyMap<string, number>
+  /** Called with the author's userId after the viewer likes or unlikes their message. */
+  onLiked?: (authorId: string) => void
 }) {
   const { messages, status, send, softDelete } = useMessages(channelId)
+  const { getReactionsForMessage, toggle } = useReactions(channelId)
   const { user } = useUser()
   const { getName } = useUserLookup()
   const canWrite = isWriterRole(user?.role)
@@ -52,6 +64,59 @@ export function ForumFeed({
     return counts
   }, [messages])
   const openPost = postId ? (messages.find((message) => message.recordId === postId) ?? null) : null
+  function likesOf(messageId: string): { count: number; mine: boolean } {
+    const like = getReactionsForMessage(messageId).find((group) => group.emoji === LIKE)
+    return { count: like?.count ?? 0, mine: like?.currentUserReacted ?? false }
+  }
+
+  function author(message: RecordData<Message>) {
+    const id = authorIdOf(message)
+    return (
+      <>
+        {getName(id) ?? 'Neighbor'}
+        <CoinBadge tokens={standing?.get(id) ?? 0} className="ml-1" />
+      </>
+    )
+  }
+
+  function remove(messageId: string) {
+    softDelete(messageId)
+    onActivity?.()
+  }
+
+  function likeButton(message: RecordData<Message>) {
+    const { count, mine } = likesOf(message.recordId)
+    const own = user?.id === authorIdOf(message)
+    const label = `${count} ${count === 1 ? 'like' : 'likes'}`
+    if (own || !canWrite) {
+      return (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground disabled:cursor-default"
+          disabled={own}
+          title={own ? `Every ${TOKEN_RATES.likesPerToken} likes from neighbors earn you 1 token` : 'Sign in to like'}
+          onClick={own ? undefined : onSignIn}
+        >
+          ♥ {label}
+        </button>
+      )
+    }
+    return (
+      <button
+        type="button"
+        className={`text-xs underline-offset-4 hover:underline ${mine ? 'text-primary' : 'text-muted-foreground'}`}
+        aria-pressed={mine}
+        onClick={() => {
+          toggle(message.recordId, LIKE)
+          onActivity?.()
+          onLiked?.(authorIdOf(message))
+        }}
+      >
+        {mine ? '♥' : '♡'} {mine ? 'Liked' : 'Like'} · {count}
+      </button>
+    )
+  }
+
   const replies = useMemo(
     () =>
       messages
@@ -66,6 +131,7 @@ export function ForumFeed({
     setSending(true)
     try {
       const id = await send(content)
+      onActivity?.()
       setTitle('')
       setBody('')
       setComposing(false)
@@ -81,6 +147,7 @@ export function ForumFeed({
     setSending(true)
     try {
       await send(content, postId)
+      onActivity?.()
       setReply('')
     } finally {
       setSending(false)
@@ -115,22 +182,25 @@ export function ForumFeed({
         <article className="mt-4 border-b border-border pb-5">
           <h2 className="display text-3xl leading-tight">{post.title}</h2>
           <p className="mt-2 text-xs text-muted-foreground">
-            {getName(authorIdOf(openPost)) ?? 'Neighbor'} · {when(openPost.createdAt)}
+            {author(openPost)} · {when(openPost.createdAt)}
             {openPost.data.edited ? ' · edited' : ''}
           </p>
           {post.body && <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed">{post.body}</p>}
-          {mine && (
-            <button
-              type="button"
-              className="mt-3 text-xs text-muted-foreground underline underline-offset-4"
-              onClick={() => {
-                softDelete(openPost.recordId)
-                onOpenPost(null)
-              }}
-            >
-              Remove this post
-            </button>
-          )}
+          <div className="mt-3 flex items-center gap-4">
+            {likeButton(openPost)}
+            {mine && (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline underline-offset-4"
+                onClick={() => {
+                  remove(openPost.recordId)
+                  onOpenPost(null)
+                }}
+              >
+                Remove this post
+              </button>
+            )}
+          </div>
         </article>
 
         <h3 className="mt-5 text-xs uppercase tracking-widest text-muted-foreground">
@@ -142,18 +212,21 @@ export function ForumFeed({
             return (
               <li key={message.recordId} className="border-b border-border py-3">
                 <p className="text-xs text-muted-foreground">
-                  {getName(authorIdOf(message)) ?? 'Neighbor'} · {when(message.createdAt)}
+                  {author(message)} · {when(message.createdAt)}
                 </p>
                 <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{message.data.content}</p>
-                {ownReply && (
-                  <button
-                    type="button"
-                    className="mt-2 text-xs text-muted-foreground underline underline-offset-4"
-                    onClick={() => softDelete(message.recordId)}
-                  >
-                    Remove
-                  </button>
-                )}
+                <div className="mt-2 flex items-center gap-4">
+                  {likeButton(message)}
+                  {ownReply && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline underline-offset-4"
+                      onClick={() => remove(message.recordId)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               </li>
             )
           })}
@@ -264,13 +337,14 @@ export function ForumFeed({
           {posts.map((message) => {
             const post = splitPost(message.data.content)
             const count = replyCount.get(message.recordId) ?? 0
+            const likes = likesOf(message.recordId).count
             return (
               <li key={message.recordId} className="border-b border-border">
                 <button type="button" className="w-full py-4 text-left" onClick={() => onOpenPost(message.recordId)}>
                   <span className="display block text-2xl leading-tight">{post.title}</span>
                   <span className="mt-1 block text-xs text-muted-foreground">
-                    {getName(authorIdOf(message)) ?? 'Neighbor'} · {when(message.createdAt)} · {count}{' '}
-                    {count === 1 ? 'reply' : 'replies'}
+                    {author(message)} · {when(message.createdAt)} · {count}{' '}
+                    {count === 1 ? 'reply' : 'replies'} · {likes} {likes === 1 ? 'like' : 'likes'}
                   </span>
                   {post.body && (
                     <span className="mt-2 block line-clamp-2 text-sm text-muted-foreground">{post.body}</span>

@@ -35,6 +35,7 @@ import {
 import { writeBrief } from './src/server/brief-route.js'
 import { writeDesk } from './src/server/desk-route.js'
 import { registerListingPaymentRoutes } from './src/server/listing-payment-route.js'
+import { registerForumTokenRoutes } from './src/server/forum-tokens-route.js'
 import { registerRealtimeRoutes } from './src/server/realtime-routes.js'
 
 // Dynamic deploy reads this manifest to create the app's DO bindings.
@@ -163,6 +164,7 @@ app.post('/api/brief', async (c) => {
   return c.json(result.payload, result.status === 400 ? 400 : 200)
 })
 registerListingPaymentRoutes(app, resolveAuth)
+registerForumTokenRoutes(app, resolveAuth)
 app.post('/api/agent', async (c) => {
   let body: unknown = null
   try {
