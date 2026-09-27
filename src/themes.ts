@@ -19,8 +19,8 @@
 export const THEMES = [
   {
     id: 'newsprint',
-    label: 'Newsprint',
-    description: 'Warm paper and brick ink for the neighborhood atlas.',
+    label: 'Daylight',
+    description: 'Warm paper and soft ink for a citywide reading.',
   },
   {
     id: 'slate',

@@ -1,29 +1,25 @@
 /**
  * Design Direction
  *
- * Product: A neighborhood atlas for Columbia DivHacks Hack the City, so a
- * resident or a council staffer can see where air, rent, and deep affordability
- * land differently across New York.
- * Emotion: The quiet unease of a newspaper graphic that will not let the
- * expensive neighborhood and the asthma neighborhood be two different stories.
- * Metaphor: A broadsheet opened on a kitchen table, the map still damp from the press.
- * References: A New York Times print map, a surveyor's notebook, a rent-stabilized
- * lease with the numbers circled.
- * Signature: The 42-neighborhood choropleth, inked from moss to brick.
- * Hero: The map is on screen immediately, with three citywide figures beside it.
+ * Product: A citywide atlas for Columbia DivHacks Hack the City.
+ * Emotion: Clear attention. The city averages look orderly. They do not land
+ * in the same neighborhoods.
+ * Metaphor: A daylight reading of the whole city, the map still the main page.
+ * Hero: Three citywide figures, then the 42-neighborhood map.
  *
  * Style Tile
- * - Color: warm newsprint, ink, brick pressure, moss relief; low saturation
- * - Type: Newsreader for figures and headlines, Public Sans for the record
- * - Theme: light, because this is a document you are meant to read in daylight
- * - Art direction: editorial cartography
- * - Motion: a short fill change when the layer or year moves; nothing loops
+ * - Color: warm paper, soft ink, muted moss; no full-bleed alarm field
+ * - Type: Newsreader for figures and headlines, Outfit for the record
+ * - Theme: light
+ * - Motion: a short fill change when the layer or year moves
  * - Voice: specific, numerical, unwilling to score data it does not have
  */
 
+import { Link } from 'react-router-dom'
 import CityAtlas from '@/components/city/CityAtlas'
+import CleaningNotes from '@/components/city/CleaningNotes'
 import SiteHeader from '@/components/SiteHeader'
-import { CITY } from '@/lib/metrics'
+import { BURDEN_PERIOD, CITY, airAt, burdenShare, formatRent, formatShare, formatUg, last } from '@/lib/metrics'
 
 const SHOWN_SOURCES = new Set([
   'Air Quality and Health Impacts',
@@ -32,17 +28,97 @@ const SHOWN_SOURCES = new Set([
   'UHF42 neighborhood boundaries',
 ])
 
+/** EPA primary annual PM2.5 standard, 2024. A threshold, not a measured value. */
+const EPA_ANNUAL_PM25 = 9
+
 export default function Landing() {
+  const cityAsthma = last(CITY.citywide.asthmaChild)
+  const cityAsk = last(CITY.citywide.asking1br)
+  const cityPm = airAt(CITY.citywide.pm25, '2024')
+  const cityBurden = burdenShare(CITY.neighborhoods)
+  const aboveCount = CITY.neighborhoods.filter((neighborhood) => {
+    const value = airAt(neighborhood.pm25, '2024')
+    return value != null && value > EPA_ANNUAL_PM25
+  }).length
+  const aboveLine =
+    aboveCount === 0
+      ? 'Every neighborhood in this record sits at or under that standard.'
+      : aboveCount === 1
+        ? 'One neighborhood is above that standard. The city figure does not name it.'
+        : `${aboveCount} neighborhoods are above that standard. The city figure does not name them.`
+
   return (
     <div data-testid="static-landing" className="min-h-screen bg-background text-foreground">
       <SiteHeader />
 
-      <main className="mx-auto max-w-6xl px-5 py-6 md:py-8">
-        <p className="mb-6 max-w-2xl text-base text-muted-foreground">
-          Type an address or choose a neighborhood. See its air, the share of income that goes to rent, and what a
-          new lease asks — and where those three are heavy together.
-        </p>
+      {cityAsthma && cityAsk && cityPm != null && (
+        <section aria-label="New York City">
+          <div className="city-hero">
+            <p className="alarm-kicker">New York City</p>
+            <h2>The city average is the number that looks fine.</h2>
+            <p className="city-dek">
+              Air, the share of income that goes to rent, and the new-lease ask are records for the whole city. They
+              do not rise and fall in the same neighborhoods. The map is how you see all 42 at once.
+            </p>
+            <div className="city-figures">
+              <article className="city-figure">
+                <strong>{formatUg(cityPm)}</strong>
+                <p>µg/m³ of PM2.5 in 2024, an annual mean. The EPA annual standard is {EPA_ANNUAL_PM25.toFixed(1)}. This is not a reading for today.</p>
+              </article>
+              <article className="city-figure">
+                <strong>{formatShare(cityBurden)}</strong>
+                <p>
+                  of renter households pay 30% or more of income, {BURDEN_PERIOD}. The Census publishes a margin of
+                  error for this share. This page does not carry it.
+                </p>
+              </article>
+              <article className="city-figure">
+                <strong>{formatRent(cityAsk.median1br)}</strong>
+                <p>Latest citywide new one-bedroom ask. A new lease, not the rent a tenant already in place pays.</p>
+              </article>
+            </div>
+          </div>
+          <div className="city-reasons">
+            <article className="city-reason">
+              <p className="num">01</p>
+              <h2>The air average sits under the standard</h2>
+              <p>
+                {formatUg(cityPm)} µg/m³ is under {EPA_ANNUAL_PM25.toFixed(1)}. {aboveLine} The annual mean also does
+                not show whether the toll changed the air.
+              </p>
+            </article>
+            <article className="city-reason">
+              <p className="num">02</p>
+              <h2>Rent burden is already half the city</h2>
+              <p>
+                {formatShare(cityBurden)} is the share of renter households, not a grade of any neighborhood. The
+                new-lease ask of {formatRent(cityAsk.median1br)} is a separate measure.
+              </p>
+            </article>
+            <article className="city-reason">
+              <p className="num">03</p>
+              <h2>The health rate is a city figure too</h2>
+              <p>
+                Child asthma visits were {Math.round(cityAsthma.value)} per 100,000 in {cityAsthma.period}. That rate
+                is not flat across the 42 neighborhoods. The average is where to start.
+              </p>
+            </article>
+          </div>
+        </section>
+      )}
+
+      <main className="mx-auto max-w-6xl px-5 pb-8">
+        <div className="atlas-intro">
+          <p className="alarm-kicker">The whole city</p>
+          <h2 className="display text-4xl leading-none md:text-5xl">Forty-two neighborhoods, one record.</h2>
+          <p>
+            Open a place when you want its steps. The round button is the desk, and it answers from the record you
+            have open. <Link to="/home">Neighborhood forums</Link> are the public threads.
+          </p>
+        </div>
         <CityAtlas />
+
+        <CleaningNotes />
       </main>
 
       <footer className="border-t border-border">

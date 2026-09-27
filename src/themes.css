@@ -16,30 +16,30 @@
  *   4. Switch to it via `data-theme` on <html> in index.html.
  */
 
-/* Newsprint — the civic atlas. Warm paper, ink, brick for pressure, moss for relief. */
+/* Daylight — warm paper, soft ink, a muted clay accent. Easy to read for a while. */
 [data-theme="newsprint"] {
   color-scheme: light;
-  --color-background: #f3efe6;
-  --color-foreground: #1c1915;
-  --color-card: #faf7f0;
-  --color-card-foreground: #1c1915;
-  --color-popover: #faf7f0;
-  --color-popover-foreground: #1c1915;
-  --color-primary: #6e3224;
-  --color-primary-foreground: #faf7f0;
-  --color-secondary: #e7e1d4;
-  --color-secondary-foreground: #1c1915;
-  --color-muted: #e6e0d2;
-  --color-muted-foreground: #5c564c;
-  --color-accent: #e7e1d4;
-  --color-accent-foreground: #1c1915;
-  --color-destructive: #8f3d2c;
-  --color-destructive-foreground: #faf7f0;
-  --color-border: #d4cbbd;
-  --color-input: #d4cbbd;
-  --color-ring: #6e3224;
-  --color-relief: #2f5d50;
-  --color-pressure: #8f3d2c;
+  --color-background: #f7f4ee;
+  --color-foreground: #2a2622;
+  --color-card: #fffdf9;
+  --color-card-foreground: #2a2622;
+  --color-popover: #fffdf9;
+  --color-popover-foreground: #2a2622;
+  --color-primary: #3f6f62;
+  --color-primary-foreground: #fffdf9;
+  --color-secondary: #efeae2;
+  --color-secondary-foreground: #2a2622;
+  --color-muted: #efeae2;
+  --color-muted-foreground: #5f584e;
+  --color-accent: #efeae2;
+  --color-accent-foreground: #2a2622;
+  --color-destructive: #9a4d3a;
+  --color-destructive-foreground: #fffdf9;
+  --color-border: #e4ddd2;
+  --color-input: #e4ddd2;
+  --color-ring: #3f6f62;
+  --color-relief: #3f6f62;
+  --color-pressure: #8f5a45;
   --tone-0: #e4efe6;
   --tone-1: #d5e3d4;
   --tone-2: #e5e0cf;
@@ -59,22 +59,29 @@
   --bi-12: #687773;
   --bi-22: #5a4b42;
   /* Two-series line charts: the chosen place and the city. Checked with the dataviz palette validator. */
-  --series-place: #8f3d2c;
-  --series-city: #2a6aa3;
-  --radius: 2px;
-  --shadow-card: 0 1px 0 0 rgba(28, 25, 21, 0.04);
-  --shadow-card-hover: 0 1px 0 0 rgba(28, 25, 21, 0.08);
-  --color-shell: #f3efe6;
-  --color-shell-panel: #faf7f0;
+  --series-place: #8f5a45;
+  --series-city: #3d6a8a;
+  --radius: 6px;
+  --shadow-card: 0 1px 2px 0 rgba(42, 38, 34, 0.05);
+  --shadow-card-hover: 0 2px 8px 0 rgba(42, 38, 34, 0.08);
+  --color-shell: #f7f4ee;
+  --color-shell-panel: #fffdf9;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   font-family: var(--font-sans);
+}
+
+[data-theme="newsprint"] body {
+  font-family: var(--font-sans);
+  font-size: 16px;
 }
 
 [data-theme="newsprint"] h1,
 [data-theme="newsprint"] h2,
 [data-theme="newsprint"] h3,
 [data-theme="newsprint"] .display {
-  font-family: var(--font-serif);
-  font-optical-sizing: auto;
+  font-family: "Newsreader", "Iowan Old Style", Palatino, Georgia, serif;
+  font-weight: 550;
+  letter-spacing: -0.02em;
 }
 
 /* Paper — light example theme; shows the full token contract incl.

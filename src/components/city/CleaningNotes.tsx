@@ -49,8 +49,8 @@ export default function CleaningNotes() {
           </div>
           <p className="text-sm text-muted-foreground mt-3">
             {EXAMPLE.more.name} has {(EXAMPLE.more.units / EXAMPLE.fewer.units).toFixed(1)} times the units, but{' '}
-            {EXAMPLE.fewer.name} has more for its size. Big neighborhoods pile up big counts, so the Gap layer and the
-            side panel use the rate.
+            {EXAMPLE.fewer.name} has more for its size. Big neighborhoods pile up big counts, so the side panel uses the
+            rate.
           </p>
         </div>
       )}
