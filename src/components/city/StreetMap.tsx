@@ -4,9 +4,9 @@ import type { FeatureCollection } from 'geojson'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { formatUg, type MonitorPoint } from '@/lib/metrics'
 
-// The package worker imports a sibling chunk. Serving both from /maplibre keeps
-// that import working in Vite dev and in the production asset build.
-setWorkerUrl('/maplibre/maplibre-gl-worker.mjs')
+// The package worker imports a sibling chunk. Both are .js so the asset host
+// serves them as JavaScript. A .mjs file was sent as application/octet-stream.
+setWorkerUrl('/maplibre/maplibre-gl-worker.js')
 import uhf from '@/data/uhf.json'
 import { neighborhoodIdAt } from '@/lib/geo'
 

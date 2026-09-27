@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import RentTrend from '@/components/city/RentTrend'
 import StreetMap, { hoodColor, type HoodPaint, type MapPin } from '@/components/city/StreetMap'
 import {
   AIR_YEARS,
@@ -13,6 +14,9 @@ import {
   formatCount,
   formatPercent,
   formatRate,
+  formatShare,
+  burdenShare,
+  BURDEN_PERIOD,
   formatRent,
   deepPer1k,
   householdsIn,
@@ -30,9 +34,9 @@ import {
   type Reading,
 } from '@/lib/metrics'
 import { compareNeighborhoods } from '@/lib/compare'
+import { rentCapForIncome } from '@/lib/actions'
+import ActionPanel from '@/components/city/ActionPanel'
 import {
-  ASK_WINDOW,
-  formatChange,
   measureRange,
   monthLabel,
   neighborhoodsForBudget,
@@ -42,7 +46,9 @@ import {
 import { councilDistrictAt } from '@/lib/council'
 import { interpretDesk, type CouncilPin } from '@/lib/desk'
 import type { NextStep } from '@/lib/next-steps'
+import { reportSlug } from '@/lib/next-steps'
 import { findNeighborhood } from '@/lib/place-search'
+import { standingFor } from '@/lib/standing'
 import { formatClock, hourAir, trafficMarkCount, WEEKDAY_CRZ_ENTRIES } from '@/lib/traffic-day'
 import './atlas.css'
 
@@ -54,6 +60,11 @@ const LAYERS: { id: Layer; label: string; hint: string }[] = [
     id: 'rent',
     label: 'Rent',
     hint: 'Median asking rent for new one-bedroom leases, from listings. Tenants already in place, including rent-stabilized ones, often pay less.',
+  },
+  {
+    id: 'burden',
+    label: 'Rent burden',
+    hint: 'Share of renter households paying 30% or more of income on rent and utilities, 2020–2024. Summed from Census ZIP data the same way NYC Health computes it.',
   },
   {
     id: 'pair',
@@ -121,6 +132,7 @@ function boroughRows() {
       rent: last(summary.asking1br)?.median1br ?? null,
       deep: summary.deep,
       deepPer1k: summary.deepPer1k,
+      burden: burdenShare(CITY.neighborhoods.filter((n) => n.borough === borough)),
       count: summary.count,
     }
   })
@@ -132,6 +144,7 @@ export default function CityAtlas() {
   const [view, setView] = useState<'single' | 'split' | 'pressure'>('single')
   const [splitAir, setSplitAir] = useState<'pm25' | 'no2'>('pm25')
   const [budgetInput, setBudgetInput] = useState('')
+  const [incomeInput, setIncomeInput] = useState('')
   const [showMonitors, setShowMonitors] = useState(true)
   const [activeMonitorId, setActiveMonitorId] = useState<string | null>(null)
   const [airYear, setAirYear] = useState('2024')
@@ -376,9 +389,15 @@ export default function CityAtlas() {
   )
   const rentLegend = useMemo(() => measureRange('asking', rentMonth), [rentMonth])
   const airLegend = useMemo(() => measureRange(splitAir, airYear), [splitAir, airYear])
-  const budgetValue = Number(budgetInput)
-  const bracket = budgetInput.trim() && Number.isFinite(budgetValue) ? neighborhoodsForBudget(budgetValue) : null
-  const focusedPressure = focus ? (pressure.find((place) => place.id === focus.id) ?? null) : null
+  const incomeValue = Number(incomeInput)
+  const incomeCap =
+    incomeInput.trim() && Number.isFinite(incomeValue) ? rentCapForIncome(incomeValue) : null
+  const budgetValue = incomeCap ?? Number(budgetInput)
+  const bracket =
+    (incomeCap != null || budgetInput.trim()) && Number.isFinite(budgetValue)
+      ? neighborhoodsForBudget(budgetValue)
+      : null
+  const standing = focus ? standingFor(focus) : []
   const monitors = useMemo(
     () =>
       CITY.airMonitors.map((monitor) => ({
@@ -407,6 +426,9 @@ export default function CityAtlas() {
   const deep = deepRows.reduce((sum, n) => sum + n.housing.since2014eli, 0)
   const deepRate = deepPer1k(deepRows)
   const deepHouseholds = householdsIn(deepRows)
+  const burden = burdenShare(deepRows)
+  const burdenSevere = burdenShare(deepRows, 'severe')
+  const cityBurden = burdenShare(CITY.neighborhoods)
   const pmChange = percentChange(pmThen, pmNow)
   const rentChange = percentChange(zori2019 ?? null, zoriEnd?.value ?? null)
   const sparkValues =
@@ -445,7 +467,7 @@ export default function CityAtlas() {
 
   return (
     <div className="atlas">
-      <div>
+      <div className="atlas-find">
         <form
           className="place-search"
           role="search"
@@ -474,6 +496,28 @@ export default function CityAtlas() {
             {placeNote}
           </p>
         </form>
+        <label className="block text-sm">
+          <span className="text-muted-foreground">Neighborhood</span>
+          <select
+            className="place-select mt-1"
+            value={focus?.id ?? ''}
+            onChange={(event) => {
+              if (event.target.value) choose(event.target.value)
+            }}
+          >
+            <option value="" disabled>
+              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
+            </option>
+            {choices.map((n) => (
+              <option key={n.id} value={n.id}>
+                {borough ? n.name : `${n.borough} — ${n.name}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="atlas-stage">
+        <div className="atlas-map">
         <div className="layer-rail" role="group" aria-label="Map layer">
           {LAYERS.map((item) => (
             <button
@@ -495,7 +539,7 @@ export default function CityAtlas() {
             Rising rent
           </button>
         </div>
-        <p className="text-sm text-muted-foreground mb-3">{activeHint}</p>
+        <p className="text-sm text-muted-foreground mb-2">{activeHint}</p>
         <div className="layer-rail borough-rail" role="group" aria-label="Borough">
           <button type="button" aria-pressed={borough == null} onClick={() => chooseBorough(null)}>
             All five
@@ -583,25 +627,6 @@ export default function CityAtlas() {
             />
           </label>
         )}
-        <label className="mt-4 block text-sm">
-          <span className="text-muted-foreground">Neighborhood</span>
-          <select
-            className="place-select mt-1"
-            value={focus?.id ?? ''}
-            onChange={(event) => {
-              if (event.target.value) choose(event.target.value)
-            }}
-          >
-            <option value="" disabled>
-              {borough ? `Choose a neighborhood in ${borough}` : 'Choose a neighborhood'}
-            </option>
-            {choices.map((n) => (
-              <option key={n.id} value={n.id}>
-                {borough ? n.name : `${n.borough} — ${n.name}`}
-              </option>
-            ))}
-          </select>
-        </label>
         {view === 'split' ? (
           <div className="map-split">
             <div className="map-pane">
@@ -751,13 +776,20 @@ export default function CityAtlas() {
               />
             </label>
             <p className="text-xs text-muted-foreground mt-2">
-              Weekday average from MTA counts of vehicles entering the Congestion Relief Zone.
-              {focus ? ` ${focus.name}` : ` ${borough}`} keeps its 2024 air as the level of the day:
-              estimated NO2 {formatUg(day.no2)} ppb and PM2.5 {formatUg(day.pm25)} µg/m³ at this hour,
-              against annual means of {formatUg(no2Now)} ppb and {formatUg(pmNow)} µg/m³. NO2 rises and
-              falls with the entries. PM2.5 moves less. The marks follow streets in view; they are not a count
-              of cars on that block. The survey does not record the hour, and this does not score the toll.
+              Estimated from the 2024 annual mean and weekday zone entries. The marks follow streets in view.
+              This does not score the toll.
             </p>
+            <details className="fold">
+              <summary>How this hour is estimated</summary>
+              <p className="text-xs text-muted-foreground mt-2">
+                Weekday average from MTA counts of vehicles entering the Congestion Relief Zone.
+                {focus ? ` ${focus.name}` : ` ${borough}`} keeps its 2024 air as the level of the day:
+                estimated NO2 {formatUg(day.no2)} ppb and PM2.5 {formatUg(day.pm25)} µg/m³ at this hour,
+                against annual means of {formatUg(no2Now)} ppb and {formatUg(pmNow)} µg/m³. NO2 rises and
+                falls with the entries. PM2.5 moves less. The marks follow streets in view; they are not a count
+                of cars on that block. The survey does not record the hour, and this does not score the toll.
+              </p>
+            </details>
           </div>
         )}
         {showMonitors && (
@@ -766,39 +798,7 @@ export default function CityAtlas() {
             PM2.5 and 4 for NO2. Click one for its 2025–2026 reading.
           </p>
         )}
-        <table className="borough-table">
-          <caption className="text-left text-xs text-muted-foreground mb-1">
-            PM2.5 and rent are the median of neighborhoods, not of people. Deep units are extremely-low and very-low income homes in projects started since 2014, per 1,000 households in the whole borough.
-          </caption>
-          <thead>
-            <tr>
-              <th>Borough</th>
-              <th>PM2.5</th>
-              <th>1-bed, new lease</th>
-              <th>Deep units per 1,000 households</th>
-            </tr>
-          </thead>
-          <tbody>
-            {boroughs.map((row) => (
-              <tr key={row.borough} className={borough === row.borough ? 'is-current' : undefined}>
-                <td>
-                  <button
-                    type="button"
-                    className="borough-link"
-                    aria-pressed={borough === row.borough}
-                    onClick={() => chooseBorough(borough === row.borough ? null : row.borough)}
-                  >
-                    {row.borough}
-                  </button>
-                </td>
-                <td>{formatUg(row.pm)}</td>
-                <td>{formatRent(row.rent)}</td>
-                <td title={`${formatCount(row.deep)} units`}>{formatRate(row.deepPer1k)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        </div>
 
       <aside className="dossier">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -817,21 +817,22 @@ export default function CityAtlas() {
         <h2 className="display text-4xl leading-none mt-1 mb-2">
           {focus ? focus.name : borough ?? 'All 42 neighborhoods'}
         </h2>
+        {focus ? (
+          <ul className="standing" aria-label={`${focus.name} against the city`}>
+            {standing.map((part) => (
+              <li key={part.text} className={`is-${part.lean}`}>
+                {part.text.charAt(0).toUpperCase() + part.text.slice(1)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="standing">Choose a neighborhood to read it against the city.</p>
+        )}
         {!focus && area && (
           <p className="text-xs text-muted-foreground mb-2">
             {area.count} neighborhoods, read as their median.
           </p>
         )}
-        <p className="mb-3">
-          <Link to={focus ? `/home?n=${focus.id}` : '/home'} className="text-sm underline underline-offset-4">
-            Open the {focus ? `${focus.name} forum` : 'neighborhood forums'}
-          </Link>
-        </p>
-        <p className="text-sm text-muted-foreground mb-2">
-          {focus
-            ? readings.get(focus.id)?.label
-            : `PM2.5 ${formatUg(pmNow)} µg/m³ in 2024. New one-bedroom leases ask ${formatRent(ask?.median1br ?? null)}.`}
-        </p>
 
         <div className="figure-row">
           <strong>{formatUg(pmNow)}</strong>
@@ -865,6 +866,37 @@ export default function CityAtlas() {
             </div>
           </div>
         </div>
+        <RentTrend
+          place={focus ?? (borough && area ? { name: borough, asking1br: area.asking1br } : null)}
+        />
+        <div className="figure-row">
+          <strong>{formatShare(burden)}</strong>
+          <div>
+            <div>of renter households pay 30% or more of income on rent, {BURDEN_PERIOD}</div>
+            <div
+              className={
+                burden != null && cityBurden != null && (focus || borough)
+                  ? burden > cityBurden
+                    ? 'delta-pressure'
+                    : 'delta-relief'
+                  : 'text-muted-foreground'
+              }
+            >
+              {formatShare(burdenSevere)} pay half or more
+              {focus || borough ? ` · city ${formatShare(cityBurden)}` : ''}
+            </div>
+            {focus && (
+              <a
+                className="text-sm underline underline-offset-4"
+                href={`https://a816-dohbesp.nyc.gov/IndicatorPublic/neighborhood-reports/${reportSlug(focus.name)}/housing_and_health/`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Housing and health in {focus.name} ↗
+              </a>
+            )}
+          </div>
+        </div>
         <div className="figure-row">
           <strong>{formatRate(deepRate)}</strong>
           <div>
@@ -889,47 +921,54 @@ export default function CityAtlas() {
                 : 'Sparkline: Zillow Observed Rent Index, annual.'}
           </p>
         )}
+        <p className="mt-3">
+          <Link to={focus ? `/home?n=${focus.id}` : '/home'} className="text-sm underline underline-offset-4">
+            Open the {focus ? `${focus.name} forum` : 'neighborhood forums'}
+          </Link>
+        </p>
 
-        <section className="equity-gap mt-8" aria-labelledby="equity-title">
-          <h3 id="equity-title" className="display text-2xl mb-1">
-            Equity gap
-          </h3>
-          <p className="text-sm text-muted-foreground mb-3">
-            New one-bedroom asks from {monthLabel(ASK_WINDOW.start)} to {monthLabel(ASK_WINDOW.end)} rose at
-            least one percentage point faster than the city, where 2024 PM2.5 or NO2 is still above the city
-            mean. The latest month has at least 20 listings. This is the neighborhood, not the block.
-          </p>
-          <ul className="desk-read">
-            {pressure.map((place) => (
-              <li key={place.id}>
-                <button type="button" className="borough-link" onClick={() => showPressure(place.id)}>
-                  {place.name}
-                </button>{' '}
-                asks {formatChange(place.askPct)}, city {formatChange(place.cityAskPct)}. PM2.5{' '}
-                {formatUg(place.pm25)} µg/m³. NO2 {formatUg(place.no2)} ppb.
-              </li>
-            ))}
-          </ul>
-          {focusedPressure && (
-            <div className="next-steps">
-              <p className="text-sm mb-2">{focusedPressure.name} is in this set.</p>
-              <a href={focusedPressure.insight.href} target="_blank" rel="noreferrer">
-                {focusedPressure.insight.title} ↗
-              </a>
-              <p className="text-sm text-muted-foreground">{focusedPressure.insight.note}</p>
-            </div>
-          )}
-        </section>
+      </aside>
+      </div>
 
-        <section className="health-premium mt-8" aria-labelledby="premium-title">
+        <ActionPanel
+          focus={focus}
+          address={pin && pin.id === focus?.id ? pin.label : null}
+          pressure={pressure}
+          onChoose={choose}
+          onPressure={showPressure}
+        />
+
+        <div className="atlas-tools">
+        <section className="health-premium" aria-labelledby="premium-title">
           <h3 id="premium-title" className="display text-2xl mb-1">
             Health premium
           </h3>
           <p className="text-sm text-muted-foreground mb-3">
-            Neighborhoods whose latest new one-bedroom ask is at or under your number, cleanest 2024 air first.
+            30% of yearly income, as a monthly rent. Neighborhoods whose latest new one-bedroom ask is at or
+            under that, cleanest 2024 air first. The 30% figure is a budgeting rule, not a legal cap.
           </p>
           <label className="block text-sm">
-            <span className="text-muted-foreground">Target monthly rent</span>
+            <span className="text-muted-foreground">Yearly income</span>
+            <input
+              className="place-select mt-1"
+              type="number"
+              min={0}
+              step={1000}
+              inputMode="numeric"
+              placeholder="62000"
+              value={incomeInput}
+              onChange={(event) => setIncomeInput(event.target.value)}
+            />
+          </label>
+          {incomeCap != null && (
+            <p className="text-sm mt-2">
+              30% of {formatRent(incomeValue)} a year is {formatRent(incomeCap)} a month.
+            </p>
+          )}
+          <label className="block text-sm mt-3">
+            <span className="text-muted-foreground">
+              {incomeCap != null ? 'Monthly rent is set from income until you clear it' : 'Or a target monthly rent'}
+            </span>
             <input
               className="place-select mt-1"
               type="number"
@@ -937,6 +976,7 @@ export default function CityAtlas() {
               step={50}
               inputMode="numeric"
               placeholder="3000"
+              disabled={incomeCap != null}
               value={budgetInput}
               onChange={(event) => setBudgetInput(event.target.value)}
             />
@@ -977,7 +1017,7 @@ export default function CityAtlas() {
           )}
         </section>
 
-        <section className="compare mt-8" aria-labelledby="compare-title">
+        <section className="compare" aria-labelledby="compare-title">
           <h3 id="compare-title" className="display text-2xl mb-1">
             Compare
           </h3>
@@ -1052,8 +1092,44 @@ export default function CityAtlas() {
             </p>
           )}
         </section>
+        </div>
 
-      </aside>
+        <table className="borough-table">
+          <caption className="text-left text-xs text-muted-foreground mb-1">
+            PM2.5 and rent are the median of neighborhoods, not of people. Rent-burdened is the share of all the
+            borough's renter households paying 30% or more of income on rent. Deep units are extremely-low and
+            very-low income homes in projects started since 2014, per 1,000 households in the whole borough.
+          </caption>
+          <thead>
+            <tr>
+              <th>Borough</th>
+              <th>PM2.5</th>
+              <th>1-bed, new lease</th>
+              <th>Rent-burdened</th>
+              <th>Deep units per 1,000 households</th>
+            </tr>
+          </thead>
+          <tbody>
+            {boroughs.map((row) => (
+              <tr key={row.borough} className={borough === row.borough ? 'is-current' : undefined}>
+                <td>
+                  <button
+                    type="button"
+                    className="borough-link"
+                    aria-pressed={borough === row.borough}
+                    onClick={() => chooseBorough(borough === row.borough ? null : row.borough)}
+                  >
+                    {row.borough}
+                  </button>
+                </td>
+                <td>{formatUg(row.pm)}</td>
+                <td>{formatRent(row.rent)}</td>
+                <td>{formatShare(row.burden)}</td>
+                <td title={`${formatCount(row.deep)} units`}>{formatRate(row.deepPer1k)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       <div className="desk-dock">
         {deskOpen && (
           <section id="desk-chat" className="desk-panel" role="dialog" aria-labelledby="desk-title">

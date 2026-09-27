@@ -1,4 +1,4 @@
-import { formatCount, formatPercent, formatRate, formatRent, formatUg, percentChange, type BriefFacts } from './metrics'
+import { formatCount, formatPercent, formatRate, formatRent, formatShare, formatUg, percentChange, type BriefFacts } from './metrics'
 
 /**
  * A briefing written only from the snapshot. Used when the Grok request
@@ -53,7 +53,15 @@ export function briefFromFacts(facts: BriefFacts, question = ''): string {
     facts.counted_units
       ? `, inside ${formatCount(facts.counted_units)} counted rental units`
       : ''
-  }. Those are production counts, not a census of every apartment.`
+  }. Those are production counts, not a census of every apartment.${
+    facts.rent_burden_pct != null
+      ? ` ${formatShare(facts.rent_burden_pct)} of renter households here pay 30% or more of income on rent, and ${formatShare(
+          facts.rent_burden_severe_pct,
+        )} pay half or more (ACS ${facts.rent_burden_period}${
+          facts.city_rent_burden_pct != null ? `; city ${formatShare(facts.city_rent_burden_pct)}` : ''
+        }).`
+      : ''
+  }`
 
   const limit =
     ' NYCCAS annual neighborhood means in this atlas stop in 2024, the year before congestion pricing. They do not score the toll. A handful of real EPA monitors show 2025-2026 readings where they exist, marked apart from the modeled map. Rent listings run through August 2026.'

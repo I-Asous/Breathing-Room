@@ -1,0 +1,227 @@
+{
+  "source": "ACS 5-year 2020-2024, table B25070, gross rent as a share of household income, by ZCTA",
+  "href": "https://www.census.gov/programs-surveys/acs/data/summary-file.html",
+  "definition": "Renter households paying 30% or more of income on gross rent (rent plus utilities), of all renter households",
+  "period": "2020-2024",
+  "city": 49.8,
+  "byUhf": {
+    "101": {
+      "renters": 22749,
+      "burdened": 11551,
+      "severe": 6139
+    },
+    "102": {
+      "renters": 41232,
+      "burdened": 21487,
+      "severe": 11209
+    },
+    "103": {
+      "renters": 86838,
+      "burdened": 51074,
+      "severe": 30863
+    },
+    "104": {
+      "renters": 78863,
+      "burdened": 43986,
+      "severe": 25145
+    },
+    "105": {
+      "renters": 73982,
+      "burdened": 42473,
+      "severe": 26711
+    },
+    "106": {
+      "renters": 77515,
+      "burdened": 45735,
+      "severe": 28192
+    },
+    "107": {
+      "renters": 48811,
+      "burdened": 28491,
+      "severe": 17728
+    },
+    "201": {
+      "renters": 55745,
+      "burdened": 22028,
+      "severe": 11735
+    },
+    "202": {
+      "renters": 78241,
+      "burdened": 29328,
+      "severe": 14226
+    },
+    "203": {
+      "renters": 118150,
+      "burdened": 56499,
+      "severe": 30793
+    },
+    "204": {
+      "renters": 52241,
+      "burdened": 26512,
+      "severe": 15084
+    },
+    "205": {
+      "renters": 27661,
+      "burdened": 14278,
+      "severe": 8276
+    },
+    "206": {
+      "renters": 73191,
+      "burdened": 39462,
+      "severe": 23158
+    },
+    "207": {
+      "renters": 82108,
+      "burdened": 40295,
+      "severe": 22866
+    },
+    "208": {
+      "renters": 31939,
+      "burdened": 15878,
+      "severe": 8280
+    },
+    "209": {
+      "renters": 46219,
+      "burdened": 22595,
+      "severe": 13190
+    },
+    "210": {
+      "renters": 70754,
+      "burdened": 39483,
+      "severe": 23031
+    },
+    "211": {
+      "renters": 75762,
+      "burdened": 38612,
+      "severe": 20100
+    },
+    "301": {
+      "renters": 82749,
+      "burdened": 42871,
+      "severe": 23944
+    },
+    "302": {
+      "renters": 64004,
+      "burdened": 32067,
+      "severe": 17806
+    },
+    "303": {
+      "renters": 45181,
+      "burdened": 22952,
+      "severe": 12783
+    },
+    "304": {
+      "renters": 72871,
+      "burdened": 30937,
+      "severe": 16469
+    },
+    "305": {
+      "renters": 70452,
+      "burdened": 28911,
+      "severe": 15827
+    },
+    "306": {
+      "renters": 72138,
+      "burdened": 31647,
+      "severe": 14163
+    },
+    "307": {
+      "renters": 49547,
+      "burdened": 22751,
+      "severe": 12162
+    },
+    "308": {
+      "renters": 29756,
+      "burdened": 11757,
+      "severe": 6057
+    },
+    "309": {
+      "renters": 72096,
+      "burdened": 32838,
+      "severe": 16513
+    },
+    "310": {
+      "renters": 21356,
+      "burdened": 8988,
+      "severe": 4631
+    },
+    "401": {
+      "renters": 85236,
+      "burdened": 36328,
+      "severe": 16944
+    },
+    "402": {
+      "renters": 103066,
+      "burdened": 55168,
+      "severe": 28789
+    },
+    "403": {
+      "renters": 48666,
+      "burdened": 27580,
+      "severe": 16066
+    },
+    "404": {
+      "renters": 11176,
+      "burdened": 5234,
+      "severe": 2887
+    },
+    "405": {
+      "renters": 60091,
+      "burdened": 27547,
+      "severe": 14348
+    },
+    "406": {
+      "renters": 17234,
+      "burdened": 8232,
+      "severe": 4047
+    },
+    "407": {
+      "renters": 36429,
+      "burdened": 19068,
+      "severe": 11220
+    },
+    "408": {
+      "renters": 54074,
+      "burdened": 28792,
+      "severe": 15838
+    },
+    "409": {
+      "renters": 18342,
+      "burdened": 9404,
+      "severe": 4807
+    },
+    "410": {
+      "renters": 28890,
+      "burdened": 14858,
+      "severe": 8169
+    },
+    "501": {
+      "renters": 9390,
+      "burdened": 5228,
+      "severe": 3325
+    },
+    "502": {
+      "renters": 21425,
+      "burdened": 11046,
+      "severe": 6056
+    },
+    "503": {
+      "renters": 8490,
+      "burdened": 3837,
+      "severe": 2168
+    },
+    "504": {
+      "renters": 15784,
+      "burdened": 8547,
+      "severe": 4636
+    }
+  },
+  "check": {
+    "against": "NYC Health, Rent-burdened households (indicator 2336), 2017-2021",
+    "href": "https://a816-dohbesp.nyc.gov/IndicatorPublic/data-explorer/housing-stability/?id=2336",
+    "meanAbsDiff": 0.08,
+    "maxAbsDiff": 2.14,
+    "city": 49.7,
+    "publishedCity": 49.7049
+  }
+}

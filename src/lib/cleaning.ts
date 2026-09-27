@@ -1,5 +1,6 @@
 import cleaning from '../data/cleaning.json'
-import { CITY, deepPer1k, formatCount, householdsIn, HOUSEHOLDS_PERIOD } from './metrics'
+import rentBurden from '../data/rent-burden.json'
+import { BURDEN_CHECK, BURDEN_PERIOD, CITY, deepPer1k, formatCount, householdsIn, HOUSEHOLDS_PERIOD } from './metrics'
 import { UHF_ZIPS } from './place-search'
 
 export type CleaningStep = {
@@ -63,6 +64,14 @@ export function cleaningSteps(): CleaningStep[] {
       what: `Census household counts (ACS ${HOUSEHOLDS_PERIOD}) come by ZIP. NYC Health's ZIP list for each neighborhood, checked against the ZIP boundary shapes, adds them up to ${formatCount(
         householdsIn(CITY.neighborhoods),
       )} households citywide.`,
+    },
+    {
+      record: 'Rent burden',
+      from: `${formatCount(Object.values(rentBurden.byUhf).reduce((sum, row) => sum + row.renters, 0))} renter households`,
+      to: `${formatCount(CITY.neighborhoods.length)} neighborhoods`,
+      what: `NYC Health publishes rent burden only through 2017–2021, so we rebuild it for ${BURDEN_PERIOD} from the same Census table, ZIP by ZIP. To check the method, the build recomputes NYC Health's 2017–2021 figures: they agree within ${BURDEN_CHECK.meanAbsDiff} percentage points on average (citywide ${BURDEN_CHECK.city}% against their ${
+        BURDEN_CHECK.publishedCity == null ? '—' : Math.round(BURDEN_CHECK.publishedCity * 10) / 10
+      }%).`,
     },
   ]
 }

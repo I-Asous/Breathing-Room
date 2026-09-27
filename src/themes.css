@@ -58,6 +58,9 @@
   --bi-02: #6c93a6;
   --bi-12: #687773;
   --bi-22: #5a4b42;
+  /* Two-series line charts: the chosen place and the city. Checked with the dataviz palette validator. */
+  --series-place: #8f3d2c;
+  --series-city: #2a6aa3;
   --radius: 2px;
   --shadow-card: 0 1px 0 0 rgba(28, 25, 21, 0.04);
   --shadow-card-hover: 0 1px 0 0 rgba(28, 25, 21, 0.08);
